@@ -36,6 +36,8 @@ class Player(Bot):
         }
         self.total_opponent_actions = 0
         self.opponent_af = 0
+        self.street = 0
+        self.pot = 0
 
     def handle_new_round(self, game_state, round_state, active):
         '''
@@ -57,6 +59,8 @@ class Player(Bot):
         # my_bounty = round_state.bounties[active]  # your current bounty rank
         self.has_checked = False
         self.preflop_raiser = False
+        self.street = 0
+        self.pot += sum(round_state.pips)
 
     def handle_round_over(self, game_state, terminal_state, active):
         '''
@@ -247,21 +251,21 @@ class Player(Bot):
         Returns:
         Integer representing the bet amount.
         '''
-        if street == 3:  # Flop
+        if street == 1:  # Flop
             if hand_strength > 0.8:
                 multiplier = 1.0
             elif hand_strength > 0.6:
                 multiplier = 0.75
             else:
                 multiplier = 0.4
-        elif street == 4:  # Turn
+        elif street == 2:  # Turn
             if hand_strength > 0.8:
                 multiplier = 1.0
             elif hand_strength > 0.6:
                 multiplier = 0.75
             else:
                 multiplier = 0.5
-        elif street == 5:  # River
+        elif street == 3:  # River
             if hand_strength > 0.8:
                 multiplier = 1.2
             elif hand_strength > 0.6:
@@ -270,7 +274,7 @@ class Player(Bot):
                 multiplier = 0.6
         else:
             multiplier = 0.5
-
+        print(multiplier, current_pot)
         bet_size = int(multiplier * current_pot)
         return bet_size
 
@@ -305,9 +309,8 @@ class Player(Bot):
         Your action (FoldAction, CheckAction, CallAction, or RaiseAction).
         '''
         legal_actions = round_state.legal_actions()
-        street = round_state.street
         my_cards = round_state.hands[active]
-        board_cards = round_state.deck[:street]
+        board_cards = round_state.deck[:round_state.street]
         my_pip = round_state.pips[active]
         opp_pip = round_state.pips[1 - active]
         my_stack = round_state.stacks[active]
@@ -318,19 +321,20 @@ class Player(Bot):
         bounty_hit = self.has_bounty_hit(my_cards, board_cards, my_bounty)
         hand_strength = self.evaluate_hand_strength(my_cards, board_cards)
         current_pot = my_pip + opp_pip
-        pot_odds = self.calculate_pot_odds(continue_cost, current_pot)
-        ev_call = self.get_expected_value(hand_strength, current_pot, continue_cost, bounty_hit)
-
-        if street == 0:
+        pot_odds = self.calculate_pot_odds(continue_cost, current_pot + self.pot)
+        ev_call = self.get_expected_value(hand_strength, current_pot + self.pot, continue_cost, bounty_hit)
+        if self.street == 0:
+            self.street += 1
             return self.handle_preflop(
                 legal_actions, my_cards, round_state, active,
-                ev_call, pot_odds, current_pot, hand_strength,
+                ev_call, pot_odds, current_pot + self.pot, hand_strength,
                 opp_pip, my_stack, my_pip
             )
         else:
+            self.street += 1
             return self.handle_postflop(
                 legal_actions, my_cards, board_cards, round_state, active,
-                hand_strength, ev_call, pot_odds, current_pot, my_stack
+                hand_strength, ev_call, pot_odds, current_pot + + self.pot, my_stack
             )
 
     def handle_preflop(
@@ -339,8 +343,8 @@ class Player(Bot):
     opp_pip, my_stack, my_pip
     ):
         '''
-        Handles pre-flop decision-making, including aggressive three-bet strategy.
-
+        Handles pre-flop decision-making with improved evaluation for non-premium hands.
+        
         Arguments:
         legal_actions: List of legal actions.
         my_cards: List of two hole cards.
@@ -357,41 +361,61 @@ class Player(Bot):
         Returns:
         Action to take.
         '''
-        preflop_bet = (round_state.street == 0) and (round_state.pips[active] > 0 or round_state.pips[1 - active] > 0)
+        preflop_bet = (self.street == 0) and (round_state.pips[active] > 0 or round_state.pips[1 - active] > 0)
         if preflop_bet:
-            if self.is_premium_hand(my_cards):
-                if RaiseAction in legal_actions:
-                    min_raise, max_raise = round_state.raise_bounds()
-                    desired_raise = 3 * opp_pip
-                    three_bet_amount = self.validate_raise_amount(desired_raise, min_raise, max_raise, my_stack)
-                    if three_bet_amount >= my_stack:
-                        three_bet_amount = my_stack
-                    if three_bet_amount > my_pip:
-                        self.preflop_raiser = True
-                        return RaiseAction(three_bet_amount)
-            if hand_strength > pot_odds and CallAction in legal_actions:
-                return CallAction()
+            print("IN here preflop_bet")
+            if self.preflop_raiser:
+                if self.is_premium_hand(my_cards):
+                    if RaiseAction in legal_actions:
+                        try:
+                            min_raise, max_raise = round_state.raise_bounds()
+                            desired_raise = 3 * opp_pip
+                            three_bet_amount = self.validate_raise_amount(desired_raise, min_raise, max_raise, my_stack)
+                            if three_bet_amount >= my_stack:
+                                three_bet_amount = my_stack
+                            if three_bet_amount > my_pip:
+                                return RaiseAction(three_bet_amount)
+                        except Exception as e:
+                            print(e, "Error during pre-flop three-bet raise")
+                            return CallAction()
             else:
-                if FoldAction in legal_actions:
-                    return FoldAction()
+                bet_threshold_ratio = 0.5
+                bet_threshold = bet_threshold_ratio * self.pot
+                if opp_pip <= bet_threshold:
+                    if hand_strength > pot_odds and CallAction in legal_actions:
+                        return CallAction()
+            if self.preflop_raiser:
+                if hand_strength > pot_odds and CallAction in legal_actions:
+                    return CallAction()
         else:
             if self.is_premium_hand(my_cards):
                 if RaiseAction in legal_actions:
-                    min_raise, max_raise = round_state.raise_bounds()
-                    desired_raise = 2 * min_raise
-                    open_raise_amount = self.validate_raise_amount(desired_raise, min_raise, max_raise, my_stack)
-                    if open_raise_amount >= my_stack:
-                        open_raise_amount = my_stack
-                    if open_raise_amount > my_pip:
-                        self.preflop_raiser = True
-                        return RaiseAction(open_raise_amount)
-            if CallAction in legal_actions:
-                return CallAction()
-            elif CheckAction in legal_actions:
-                return CheckAction()
+                    try:
+                        min_raise, max_raise = round_state.raise_bounds()
+                        desired_raise = 2 * min_raise
+                        open_raise_amount = self.validate_raise_amount(desired_raise, min_raise, max_raise, my_stack)
+                        if open_raise_amount >= my_stack:
+                            open_raise_amount = my_stack
+                        if open_raise_amount > my_pip:
+                            self.preflop_raiser = True
+                            return RaiseAction(open_raise_amount)
+                    except Exception as e:
+                        print(e, "Error during pre-flop open raise")
+                        if hand_strength > pot_odds and CallAction in legal_actions:
+                            return CallAction()
+            # **Evaluate Non-Premium Hands**
+            else:
+                # Define a lower threshold ratio for non-premium hands
+                non_premium_threshold_ratio = 0.3
+                non_premium_threshold = non_premium_threshold_ratio * self.pot
+                if opp_pip <= non_premium_threshold:
+                    if hand_strength > pot_odds and CallAction in legal_actions:
+                        return CallAction()
         if CheckAction in legal_actions:
             return CheckAction()
         return FoldAction()
+
+
 
     def handle_postflop(
     self, legal_actions, my_cards, board_cards, round_state, active,
@@ -399,7 +423,7 @@ class Player(Bot):
     ):
         '''
         Handles post-flop decision-making, including dynamic bet sizing.
-
+        
         Arguments:
         legal_actions: List of legal actions.
         my_cards: List of two hole cards.
@@ -419,12 +443,16 @@ class Player(Bot):
 
         if self.preflop_raiser:
             if hand_strength > pot_odds:
-                bet_amount = self.calculate_bet_size(hand_strength, round_state.street, current_pot)
+                bet_amount = self.calculate_bet_size(hand_strength, self.street, current_pot)
                 if RaiseAction in legal_actions and bet_amount > 0:
                     bet_amount = self.validate_raise_amount(bet_amount, *round_state.raise_bounds(), my_stack=my_stack)
                     if bet_amount >= my_stack:
                         bet_amount = my_stack
-                    return RaiseAction(bet_amount)
+                    try:
+                        return RaiseAction(bet_amount)
+                    except Exception as e:
+                        print("in here")
+                        return CallAction()
                 elif CallAction in legal_actions:
                     return CallAction()
             else:
@@ -442,19 +470,29 @@ class Player(Bot):
                         return FoldAction()
             elif opponent_type == 'LAG':
                 if hand_strength > 0.7:
-                    bet_amount = self.calculate_bet_size(hand_strength, round_state.street, current_pot)
+                    bet_amount = self.calculate_bet_size(hand_strength, self.street, current_pot)
                     if RaiseAction in legal_actions and bet_amount > 0:
                         bet_amount = self.validate_raise_amount(bet_amount, *round_state.raise_bounds(), my_stack=my_stack)
                         if bet_amount >= my_stack:
                             bet_amount = my_stack
-                        return RaiseAction(bet_amount)
+                        try:
+                            print("in here LAG")
+                            return RaiseAction(bet_amount)
+                        except Exception as e:
+                            print(e, "error")
+                            return CallAction()
                 elif hand_strength > 0.4 and random.random() < 0.3:
-                    bet_amount = self.calculate_bet_size(hand_strength, round_state.street, current_pot)
+                    bet_amount = self.calculate_bet_size(hand_strength, self.street, current_pot)
                     if RaiseAction in legal_actions and bet_amount > 0:
                         bet_amount = self.validate_raise_amount(bet_amount, *round_state.raise_bounds(), my_stack=my_stack)
                         if bet_amount >= my_stack:
                             bet_amount = my_stack
-                        return RaiseAction(bet_amount)
+                        try:
+                            print("in here LAG 2")
+                            return RaiseAction(bet_amount)
+                        except Exception as e:
+                            print(e, "error")
+                            return CallAction()
                 else:
                     if ev_call > pot_odds and CallAction in legal_actions:
                         return CallAction()
@@ -462,12 +500,18 @@ class Player(Bot):
                         return FoldAction()
             elif opponent_type == 'TAG':
                 if hand_strength > 0.6:
-                    bet_amount = self.calculate_bet_size(hand_strength, round_state.street, current_pot)
+                    bet_amount = self.calculate_bet_size(hand_strength, self.street, current_pot)
                     if RaiseAction in legal_actions and bet_amount > 0:
                         bet_amount = self.validate_raise_amount(bet_amount, *round_state.raise_bounds(), my_stack=my_stack)
                         if bet_amount >= my_stack:
                             bet_amount = my_stack
-                        return RaiseAction(bet_amount)
+                        try:
+                            print("in here TAG")
+                            return RaiseAction(bet_amount)
+                            
+                        except Exception as e:
+                            print(e, "error")
+                            return CallAction()
                 elif ev_call > pot_odds and CallAction in legal_actions:
                     return CallAction()
                 else:
@@ -476,11 +520,14 @@ class Player(Bot):
 
         if hand_strength > pot_odds:
             if RaiseAction in legal_actions:
-                bet_amount = self.calculate_bet_size(hand_strength, round_state.street, current_pot)
+                bet_amount = self.calculate_bet_size(hand_strength, self.street, current_pot)
                 bet_amount = self.validate_raise_amount(bet_amount, *round_state.raise_bounds(), my_stack=my_stack)
                 if bet_amount >= my_stack:
                     bet_amount = my_stack
+
+                
                 return RaiseAction(bet_amount)
+                    
             elif CallAction in legal_actions:
                 return CallAction()
         else:
@@ -492,6 +539,7 @@ class Player(Bot):
         if CheckAction in legal_actions:
             return CheckAction()
         return FoldAction()
+
 
 
 

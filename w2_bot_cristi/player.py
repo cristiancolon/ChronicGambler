@@ -388,7 +388,10 @@ class Player(Bot):
                     if ev_call > 0 and pot_odds < 0.35 and CallAction in legal_actions:
                         self.pot += (opp_pip - my_pip)
                         return CallAction()
-
+                if continue_cost <= 2 and CallAction in legal_actions:
+                    if random.random() < 0.35:  # 35% chance to loosen and call
+                        self.pot += continue_cost
+                        return CallAction()
                 # fallback
                 if CheckAction in legal_actions:
                     return CheckAction()

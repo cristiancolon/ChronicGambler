@@ -187,21 +187,22 @@ class Player(Bot):
         """
         Basic dynamic bet sizing approach
         """
-        if street == 1:  # flop
+        print(street)
+        if street == 3:  # flop
             if hand_strength > 0.8:
                 multiplier = 0.65
             elif hand_strength > 0.6:
                 multiplier = 0.45
             else:
                 multiplier = 0.25
-        elif street == 2:  # turn
+        elif street == 4:  # turn
             if hand_strength > 0.8:
                 multiplier = 0.65
             elif hand_strength > 0.6:
                 multiplier = 0.45
             else:
                 multiplier = 0.25
-        elif street == 3:  # river
+        elif street == 5:  # river
             if hand_strength > 0.8:
                 multiplier = 0.7
             elif hand_strength > 0.6:
@@ -210,7 +211,6 @@ class Player(Bot):
                 multiplier = 0.25
         else:
             multiplier = 0.25
-
         if board_texture == "wet":
             multiplier += 0.1
 

@@ -37,7 +37,6 @@ class Player(Bot):
         self.street = 0
         self.pot = 0
         self.raised_this_street = 0
-
     def handle_new_round(self, game_state, round_state, active):
         self.has_checked = False
         self.preflop_raiser = False
@@ -444,6 +443,8 @@ class Player(Bot):
         opp_pip = round_state.pips[1 - active]
         continue_cost = opp_pip - my_pip
 
+
+        print(my_cards, round_state.deck[:round_state.street], hand_strength, pot_odds+.1)
         # OCCASIONAL SEMI-BLUFF if hand_strength < ~0.4
         # and we haven't raised yet
         if hand_strength < 0.40 and random.random() < 0.10 and RaiseAction in legal_actions:
@@ -473,6 +474,8 @@ class Player(Bot):
                     if ev_call > 0 and CallAction in legal_actions:
                         self.pot += continue_cost
                         return CallAction()
+                    if CheckAction in legal_actions:
+                        return CheckAction()
                     return FoldAction()
             else:
                 # Check if we can cheaply see next card
@@ -482,6 +485,8 @@ class Player(Bot):
                 if ev_call > (pot_odds + 0.05) and CallAction in legal_actions:
                     self.pot += continue_cost
                     return CallAction()
+                if CheckAction in legal_actions:
+                    return CheckAction()
                 return FoldAction()
 
         # if we didn't raise preflop
@@ -494,6 +499,8 @@ class Player(Bot):
                 if ev_call > max(pot_odds, 0.15) and CallAction in legal_actions:
                     self.pot += continue_cost
                     return CallAction()
+                if CheckAction in legal_actions:
+                    return CheckAction()
                 return FoldAction()
 
             elif opponent_type == 'LAG':
@@ -519,6 +526,8 @@ class Player(Bot):
                 if ev_call > max(pot_odds, 0.15) and CallAction in legal_actions:
                     self.pot += continue_cost
                     return CallAction()
+                if CheckAction in legal_actions:
+                    return CheckAction()
                 return FoldAction()
 
             else:  # 'TAG'
@@ -533,6 +542,9 @@ class Player(Bot):
                 if ev_call > max(pot_odds, 0.15) and CallAction in legal_actions:
                     self.pot += continue_cost
                     return CallAction()
+                print("BAD FOLD")
+                if CheckAction in legal_actions:
+                    return CheckAction()
                 return FoldAction()
 
         # fallback logic

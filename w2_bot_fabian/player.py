@@ -44,13 +44,21 @@ class Player(Bot):
         # Track opponent shown hole cards
         self.opponent_shown_cards = []
 
-        # CHANGE: Track the opponent's bounty rank
+        # Opponent bounty rank (a single character rank, e.g. 'Q' or '7')
         self.opponent_bounty_rank = None
 
-        # BLUFF PREDICTOR: Track how many showdowns we see
-        # and how many times the opponent had "trash" after big bets
+        # Bluff predictor stats
         self.opponent_showdowns = 0
         self.opponent_bluff_reveals = 0
+
+        # Basic range tracking
+        self.opponent_range = None
+
+        # "ultra_premium" hands
+        self.ultra_premium_hands = {
+            ('A','A'), ('K','K'), ('Q','Q'),
+            ('A','K')
+        }
 
     # -------------------------------
     # ROUND MANAGEMENT
@@ -64,6 +72,7 @@ class Player(Bot):
 
         self.opponent_total_hands += 1
         self.opponent_bounty_rank = round_state.bounties[1 - active]
+        self.opponent_range = self.generate_full_preflop_range()
 
     def handle_round_over(self, game_state, terminal_state, active):
         # Update Opponent Aggression Factor
@@ -78,25 +87,18 @@ class Player(Bot):
         self.opponent_actions = {'raises': 0, 'bets': 0, 'calls': 0, 'folds': 0}
         self.total_opponent_actions = 0
 
-        # See if there's a showdown with opp cards
+        # Showdown
         if hasattr(terminal_state, 'previous_state'):
             opp_cards_shown = terminal_state.previous_state.hands[1 - active]
             if opp_cards_shown:
                 self.opponent_shown_cards.append(opp_cards_shown)
-                # BLUFF PREDICTOR: Evaluate if this was a "trash" showdown after big bets
-                # (Simplified: if opp's final board eq is < 0.05, we consider it trash.)
-                # We only do this if the pot was big or if the opp made big bets.
-                # For illustration, let's do a trivial approach:
                 self.opponent_showdowns += 1
-                # Evaluate opp final strength
-                # This is a bit more involved in real code, but let's do a quick check:
                 final_board = terminal_state.previous_state.deck[:terminal_state.previous_state.street]
                 opp_eq = self.evaluate_hand_strength(opp_cards_shown, final_board)
-                # if eq < 0.05 => "trash"
                 if opp_eq < 0.05:
                     self.opponent_bluff_reveals += 1
 
-        # Check if opponent went all-in
+        # Track all-in
         if getattr(self, 'opponent_went_allin_this_hand', False):
             self.opponent_allin_count += 1
         self.opponent_went_allin_this_hand = False
@@ -105,12 +107,7 @@ class Player(Bot):
     # BLUFF PREDICTOR
     # -------------------------------
     def predict_bluff_chance(self):
-        """
-        Return a float from 0..1 representing how likely we think
-        the opponent is to be bluffing big bets.
-        """
         if self.opponent_showdowns <= 0:
-            # No data => default mid estimate
             return 0.2
         return self.opponent_bluff_reveals / float(self.opponent_showdowns)
 
@@ -139,18 +136,27 @@ class Player(Bot):
             return False
         allin_freq = self.opponent_allin_count / float(self.opponent_total_hands)
         return allin_freq >= threshold
+
     def opponent_bounty_in_play(self, board_cards):
         """
-        Returns True if the opponent's bounty rank appears on the board,
-        meaning they might get a bounty advantage.
+        Returns True if the opponent's bounty rank is on the board.
+        If we lose the hand and the opponent's bounty is in play,
+        that means they get the 1.5x + 10 outcome. 
         """
         if not self.opponent_bounty_rank:
             return False
-
         for card in board_cards:
             if card[0] == self.opponent_bounty_rank:
                 return True
         return False
+
+    def hero_bounty_in_play(self, board_cards, hero_bounty_rank='A'):
+        # If we had a bounty rank ourselves, we'd check similarly.
+        for card in board_cards:
+            if card[0] == hero_bounty_rank:
+                return True
+        return False
+
     # -------------------------------
     # HAND CATEGORIZATION
     # -------------------------------
@@ -163,18 +169,26 @@ class Player(Bot):
         is_pair = (rank1 == rank2)
         is_suited = (suit1 == suit2)
 
+        big_pairs = {'AA','KK','QQ'}
+        combo = rank1 + rank2
+        sorted_2cards = ''.join(sorted([rank1, rank2], key=lambda r: ranks.index(r)))
+        if sorted_2cards == 'AK':
+            return 'premium'
+        if combo in big_pairs or combo[::-1] in big_pairs:
+            return 'premium'
+
         if is_pair:
-            if idx1 >= ranks.index('J'):  # JJ, QQ, KK, AA
+            if idx1 >= ranks.index('J'):
                 return 'premium'
-            elif idx1 >= ranks.index('7'):  # 77 - TT
+            elif idx1 >= ranks.index('7'):
                 return 'strong'
             else:
                 return 'medium'
 
-        # A-x logic
+        # A-x
         if 'A' in (rank1, rank2):
             other_rank = rank2 if rank1 == 'A' else rank1
-            if ranks.index(other_rank) >= ranks.index('Q'):  # AQ or AK
+            if ranks.index(other_rank) >= ranks.index('Q'):
                 return 'premium'
             elif is_suited:
                 return 'strong'
@@ -182,20 +196,43 @@ class Player(Bot):
                 return 'medium'
 
         # broadways
-        broadways = {'T', 'J', 'Q', 'K', 'A'}
+        broadways = {'T','J','Q','K','A'}
         if rank1 in broadways and rank2 in broadways:
             return 'strong'
 
-        # suited connectors
+        # suited connectors 8+
         gap = abs(idx1 - idx2)
         if is_suited and gap == 1 and min(idx1, idx2) >= ranks.index('8'):
             return 'strong'
 
-        # any card >=9
+        # else >= 9
         if idx1 >= ranks.index('9') or idx2 >= ranks.index('9'):
             return 'medium'
 
         return 'weak'
+
+    def categorize_made_hand(self, hole_cards, board_cards):
+        strength = self.evaluate_hand_strength(hole_cards, board_cards)
+        if strength >= 0.8:
+            return 'nuts'
+        elif strength >= 0.55:
+            return 'strong_made'
+        elif strength >= 0.35:
+            return 'medium_made'
+        else:
+            return 'weak_made'
+        
+    def is_ultra_premium(self, hole_cards):
+        """
+        For example:
+        Return True if the sorted ranks of the hole_cards 
+        is in ['AA','KK','QQ','AK'], else False.
+        """
+        ranks = [c[0] for c in hole_cards]
+        rank_str_sorted = ''.join(sorted(ranks))
+        if rank_str_sorted in ['AA','KK','QQ','AK']:
+            return True
+        return False
 
     # -------------------------------
     # HAND EVALUATION
@@ -229,7 +266,7 @@ class Player(Bot):
         return (wins + 0.5 * ties) / simulations
 
     # -------------------------------
-    # HELPER: board_has_paired
+    # BOARD TEXTURE
     # -------------------------------
     def board_has_paired(self, board_cards):
         ranks_count = {}
@@ -240,91 +277,6 @@ class Player(Bot):
                 return True
         return False
 
-    # -------------------------------
-    # POT ODDS & EV
-    # -------------------------------
-    def calculate_pot_odds(self, continue_cost, current_pot):
-        if (current_pot + continue_cost) == 0:
-            return 0
-        return continue_cost / (current_pot + continue_cost)
-
-    def get_expected_value(self, hand_strength, pot, continue_cost, bounty_hit=False, opp_bounty_in_play=False):
-        normal_winnings = pot + continue_cost
-        if bounty_hit:
-            adjusted_winnings = 1.5 * normal_winnings + 10
-        else:
-            adjusted_winnings = normal_winnings
-
-        if opp_bounty_in_play:
-            adjusted_winnings -= 10
-
-        return (hand_strength * adjusted_winnings) - ((1 - hand_strength) * continue_cost)
-
-    # -------------------------------
-    # RAISE / OVERBET LOGIC
-    # -------------------------------
-    def validate_raise_amount(self, desired_raise, min_raise, max_raise, my_stack):
-        raise_amount = max(desired_raise, min_raise)
-        return min(raise_amount, max_raise, my_stack)
-
-    def safe_raise(self, round_state, desired_raise, my_pip, my_stack):
-        legal_actions = round_state.legal_actions()
-        if RaiseAction not in legal_actions:
-            if CallAction in legal_actions:
-                return CallAction()
-            return CheckAction() if CheckAction in legal_actions else FoldAction()
-
-        min_raise, max_raise = round_state.raise_bounds()
-        final_amount = self.validate_raise_amount(desired_raise, min_raise, max_raise, my_stack)
-        if final_amount <= my_pip:
-            if CallAction in legal_actions:
-                return CallAction()
-            return CheckAction() if CheckAction in legal_actions else FoldAction()
-        return RaiseAction(min(final_amount, max_raise))
-
-    def calculate_bet_size(self, hand_strength, street, current_pot, board_texture="dry"):
-        # Preflop vs. postflop logic ...
-        if street == 0:
-            # bigger opens preflop
-            if hand_strength > 0.8:
-                multiplier = 3.0
-            elif hand_strength > 0.6:
-                multiplier = 2.5
-            else:
-                multiplier = 2.0
-        elif street == 3:  # flop
-            if hand_strength > 0.8:
-                multiplier = 0.7
-            elif hand_strength > 0.6:
-                multiplier = 0.6
-            else:
-                multiplier = 0.5
-        elif street == 4:  # turn
-            if hand_strength > 0.8:
-                multiplier = 0.7
-            elif hand_strength > 0.6:
-                multiplier = 0.6
-            else:
-                multiplier = 0.5
-        elif street == 5:  # river
-            if hand_strength > 0.8:
-                multiplier = 0.7
-            elif hand_strength > 0.6:
-                multiplier = 0.6
-            else:
-                multiplier = 0.5
-        else:
-            multiplier = 4.0 / 3.0
-
-        if board_texture == "wet":
-            multiplier += 0.1
-
-        base_bet = int(multiplier * current_pot)
-        max_factor = 1.0
-        max_bet = int(min(max_factor * current_pot, STARTING_STACK))
-        final_bet = min(base_bet, max_bet)
-        return max(final_bet, 1)
-
     def evaluate_board_texture(self, board_cards):
         if len(board_cards) < 3:
             return "unknown"
@@ -334,10 +286,104 @@ class Player(Bot):
         indices = sorted(ranks.index(c[0]) for c in board_cards)
         if len(indices) < 2:
             return "unknown"
-        max_gap = max(indices[i+1] - indices[i] for i in range(len(indices) - 1))
+        max_gap = max(indices[i+1] - indices[i] for i in range(len(indices)-1))
         if unique_suits <= 2 or max_gap <= 2:
             return "wet"
         return "dry"
+
+    # -------------------------------
+    # POT ODDS & EV
+    # -------------------------------
+    def calculate_pot_odds(self, continue_cost, current_pot):
+        if (current_pot + continue_cost) == 0:
+            return 0
+        return continue_cost / (current_pot + continue_cost)
+
+    def get_expected_value(
+        self,
+        hand_strength,
+        pot,
+        continue_cost,
+        hero_bounty_in_play=False,
+        opp_bounty_in_play=False
+    ):
+        """
+        If hero's bounty is on the board and hero WINS => 1.5*(pot+continue_cost) +10
+        If opponent's bounty is on the board and hero LOSES => hero loses 1.5*(pot+continue_cost) +10
+        Otherwise, we get/lose normal pot + continue_cost.
+
+        So final EV = eq * hero_win_amount - (1 - eq)* hero_lose_amount
+        """
+        normal_winnings = pot + continue_cost
+
+        if hero_bounty_in_play:
+            adjusted_win = 1.5 * normal_winnings + 10
+        else:
+            adjusted_win = normal_winnings
+
+        if opp_bounty_in_play:
+            adjusted_lose = 1.5 * normal_winnings + 10
+        else:
+            adjusted_lose = continue_cost
+
+        return (hand_strength * adjusted_win) - ((1 - hand_strength) * adjusted_lose)
+
+    # -------------------------------
+    # RAISE / BET SIZING
+    # -------------------------------
+    def validate_raise_amount(self, desired_raise, min_raise, max_raise, my_stack):
+        raise_amount = max(desired_raise, min_raise)
+        return min(raise_amount, max_raise, my_stack)
+
+    def safe_raise(self, round_state, desired_raise, my_pip, my_stack):
+        """
+        Updated formula using my_pip:
+         cost_to_raise = final_amount - my_pip
+         If cost_to_raise >= my_stack => jam
+        """
+        legal_actions = round_state.legal_actions()
+        if RaiseAction not in legal_actions:
+            if CallAction in legal_actions:
+                return CallAction()
+            return CheckAction() if CheckAction in legal_actions else FoldAction()
+
+        min_raise, max_raise = round_state.raise_bounds()
+
+        # clamp desired between min_raise and max_raise
+        final_amount = max(desired_raise, min_raise)
+        final_amount = min(final_amount, max_raise)
+
+        cost_to_raise = final_amount - my_pip
+        if cost_to_raise >= my_stack:
+            final_amount = my_pip + my_stack
+            final_amount = min(final_amount, max_raise)
+
+        if final_amount <= my_pip:
+            # fallback to call if possible
+            if CallAction in legal_actions:
+                return CallAction()
+            return CheckAction() if CheckAction in legal_actions else FoldAction()
+
+        return RaiseAction(final_amount)
+
+    def calculate_bet_size(self, hand_strength, street, current_pot, board_texture="dry"):
+        if street == 0:
+            multiplier = 10.0
+        else:
+            if hand_strength > 0.8:
+                multiplier = 1.0
+            elif hand_strength > 0.6:
+                multiplier = 0.8
+            else:
+                multiplier = 0.7
+
+        if board_texture == "wet":
+            multiplier += 0.1
+
+        base_bet = int(multiplier * current_pot)
+        max_bet = int(1.2 * current_pot)
+        final_bet = min(base_bet, max_bet)
+        return max(final_bet, 1)
 
     def calculate_overbet_size(self, hand_strength, current_pot, my_stack, board_texture):
         max_overbet = my_stack
@@ -348,6 +394,7 @@ class Player(Bot):
             desired = int(current_pot * 1.5)
         else:
             desired = int(current_pot * 1.2)
+
         desired = min(desired, max_overbet)
         return max(desired, 1)
 
@@ -361,6 +408,19 @@ class Player(Bot):
             return 'LAG'
         else:
             return 'TAG'
+
+    # -------------------------------
+    # RANGE GENERATION & UPDATE
+    # -------------------------------
+    def generate_full_preflop_range(self):
+        return set(['premium', 'strong', 'medium', 'weak'])
+
+    def range_reduction(self, action, board_cards):
+        updated_range = set(self.opponent_range)
+        if action in ['raise', '3bet', '4bet']:
+            if 'weak' in updated_range:
+                updated_range.remove('weak')
+        self.opponent_range = updated_range
 
     # -------------------------------
     # MAIN DECISION POINT
@@ -378,41 +438,49 @@ class Player(Bot):
         current_bet_total = my_pip + opp_pip
         approximate_total_pot = self.pot + current_bet_total
 
-        # Track all-in
         if continue_cost >= my_stack:
             self.opponent_went_allin_this_hand = True
 
         board_texture = self.evaluate_board_texture(board_cards)
         hand_strength = self.evaluate_hand_strength(my_cards, board_cards)
         opp_bounty_play = self.opponent_bounty_in_play(board_cards)
-        pot_odds = self.calculate_pot_odds(continue_cost, approximate_total_pot)
+        hero_bounty_play = False  # if we had a hero bounty, we'd set this appropriately
 
-        # BLUFF PROB
+        pot_odds = self.calculate_pot_odds(continue_cost, approximate_total_pot)
         bluff_prob = self.predict_bluff_chance()
 
-        # If the board is paired, the opponent is making a big bet, and bluff_prob is very low,
-        # we fold if we don't have near-nut hands
+        # If later street, we might do special folds if we have a weak hand vs big bet, etc.
+        if round_state.street >= 4:
+            my_made_category = self.categorize_made_hand(my_cards, board_cards)
+            if my_made_category == 'weak_made' and opp_pip > my_pip:
+                if continue_cost > 0.3 * my_stack and bluff_prob < 0.25:
+                    if FoldAction in legal_actions:
+                        return FoldAction()
+
+        # If board is paired & big bet & small bluff prob => nuanced approach
         if self.board_has_paired(board_cards) and continue_cost > 0.5 * my_stack and bluff_prob < 0.1:
-            # we only continue if hand_strength is super high
-            if hand_strength < 0.85:
-                # fold
+            my_made_category = self.categorize_made_hand(my_cards, board_cards)
+            if my_made_category == 'weak_made':
                 if FoldAction in legal_actions:
                     return FoldAction()
-                # fallback
                 if CallAction in legal_actions:
                     return CallAction()
                 return CheckAction()
+            if hand_strength < 0.55:
+                if FoldAction in legal_actions:
+                    return FoldAction()
+            if CallAction in legal_actions:
+                return CallAction()
+            return CheckAction()
 
-        # Also if we see a re-raise after we've raised => if hand_strength is < 0.03 => fold
+        # If re-raised after we raised => if eq < 3%, fold
         if self.raised_this_street >= 1 and opp_pip > my_pip:
             if hand_strength < 0.03:
-                # no further bluff re-raise
                 if CallAction in legal_actions and continue_cost < 0.05 * my_stack:
-                    # tiny call
                     return CallAction()
                 return FoldAction()
 
-        # existing all-in logic
+        # If opp is an all-in spammer
         if self.is_allin_spammer() and continue_cost >= my_stack:
             if hand_strength >= 0.25 and CallAction in legal_actions:
                 self.pot += continue_cost
@@ -421,6 +489,7 @@ class Player(Bot):
                 return FoldAction()
             return CheckAction() if CheckAction in legal_actions else FoldAction()
 
+        # Normal call-allin logic
         if continue_cost >= my_stack:
             opp_range_est = self.infer_opponent_range()
             allin_freq = self.opponent_allin_count / max(self.opponent_total_hands, 1)
@@ -431,6 +500,14 @@ class Player(Bot):
             else:
                 required_eq = 0.35
 
+            if self.is_ultra_premium(my_cards):
+                if CallAction in legal_actions:
+                    self.pot += continue_cost
+                    return CallAction()
+                if RaiseAction in legal_actions:
+                    return RaiseAction(my_stack)  # jam
+                return FoldAction()
+
             if hand_strength >= required_eq and CallAction in legal_actions:
                 self.pot += continue_cost
                 return CallAction()
@@ -438,12 +515,12 @@ class Player(Bot):
                 return FoldAction()
             return CheckAction() if CheckAction in legal_actions else FoldAction()
 
-        # track street changes
+        # Track street changes
         if round_state.street != self.street:
             self.street = round_state.street
             self.raised_this_street = 0
 
-        # preflop vs postflop calls
+        # Preflop vs. postflop
         if self.street == 0:
             return self.handle_preflop(
                 legal_actions,
@@ -455,7 +532,8 @@ class Player(Bot):
                 approximate_total_pot,
                 continue_cost,
                 my_stack,
-                my_pip
+                my_pip,
+                opp_pip
             )
         else:
             return self.handle_postflop(
@@ -470,7 +548,8 @@ class Player(Bot):
                 continue_cost,
                 my_stack,
                 board_texture,
-                opp_bounty_play
+                opp_bounty_play,
+                opp_pip
             )
 
     # -------------------------------
@@ -487,90 +566,90 @@ class Player(Bot):
         current_pot,
         continue_cost,
         my_stack,
-        my_pip
+        my_pip,
+        opp_pip
     ):
         """
-        Minimal-calling approach:
-         - Rarely just call; mostly raise or fold.
+        Includes fix for if opp just completes the SB, we don't check/fold illegally;
+        we raise to ~10. Then, no small calls approach still applies.
         """
         my_hand_tier = self.categorize_preflop_hand(my_cards)
         preflop_bet = (round_state.pips[active] > 0 or round_state.pips[1 - active] > 0)
-        is_button = (round_state.button == active)
 
-        if preflop_bet:
-            # If we can still raise => do so
-            if continue_cost < 0.8 * my_stack and RaiseAction in legal_actions:
-                desired_raise = int(2.2 * round_state.pips[1 - active])
+        # CASE 1: Opponent has posted something (SB) but not actually raised above our BB.
+        # i.e., continue_cost <= 0 => they limped.
+        if preflop_bet and continue_cost <= 0:
+            # Opponent limp => we want to raise to punish
+            if RaiseAction in legal_actions:
+                desired_raise = 10  # you can pick 10, 12, or bigger
                 action = self.safe_raise(round_state, desired_raise, my_pip, my_stack)
                 if isinstance(action, RaiseAction):
                     self.preflop_raiser = True
                     self.raised_this_street += 1
                     self.pot += (action.amount - my_pip)
                     return action
-            # fallback: fold if cost is not tiny
-            if continue_cost > 0.05 * my_stack:
-                if FoldAction in legal_actions:
-                    return FoldAction()
-            # else maybe call if it's cheap
+            # fallback: call if available, else check/fold
             if CallAction in legal_actions:
-                self.pot += continue_cost
                 return CallAction()
-            return FoldAction()
-        else:
-            # no raise yet => open
-            if is_button:
-                # open with bigger raise if strong, smaller if weaker
-                if my_hand_tier in ['premium', 'strong']:
-                    desired_raise = int(3.0 * BIG_BLIND)
-                elif my_hand_tier == 'medium':
-                    desired_raise = int(2.5 * BIG_BLIND)
-                else:
-                    # occasionally raise with 'weak' anyway
-                    if random.random() < 0.3:
-                        desired_raise = int(2.2 * BIG_BLIND)
-                    else:
-                        if CheckAction in legal_actions:
-                            return CheckAction()
-                        return FoldAction()
+            return CheckAction() if CheckAction in legal_actions else FoldAction()
 
-                action = self.safe_raise(round_state, desired_raise, my_pip, my_stack)
-                if isinstance(action, RaiseAction):
-                    self.preflop_raiser = True
-                    self.raised_this_street += 1
-                    self.pot += (action.amount - my_pip)
-                    return action
-                # fallback
-                if CheckAction in legal_actions:
-                    return CheckAction()
+        # CASE 2: Opponent actually raises above our BB
+        if preflop_bet and continue_cost > 0:
+            # jam/fold logic if cost >= 40%, etc.
+            # same code from above
+            self.range_reduction('raise', [])
+
+            if continue_cost >= 0.4 * my_stack:
+                if self.is_ultra_premium(my_cards) or hand_strength >= 0.40:
+                    if RaiseAction in legal_actions:
+                        return self.safe_raise(round_state, my_stack, my_pip, my_stack)
+                    if CallAction in legal_actions:
+                        return CallAction()
+                    return FoldAction()
+                else:
+                    return FoldAction()
+
+            if self.is_ultra_premium(my_cards):
+                if RaiseAction in legal_actions:
+                    return self.safe_raise(round_state, my_stack, my_pip, my_stack)
                 return FoldAction()
-            else:
-                # not button => also raise often
-                if my_hand_tier in ['premium', 'strong', 'medium']:
-                    desired_raise = int(2.5 * BIG_BLIND)
-                    action = self.safe_raise(round_state, desired_raise, my_pip, my_stack)
+
+            if my_hand_tier in ['premium', 'strong']:
+                if RaiseAction in legal_actions:
+                    opp_raise = round_state.pips[1 - active]
+                    desired = max(10, int(3.0 * opp_raise))
+                    action = self.safe_raise(round_state, desired, my_pip, my_stack)
                     if isinstance(action, RaiseAction):
                         self.preflop_raiser = True
                         self.raised_this_street += 1
                         self.pot += (action.amount - my_pip)
                         return action
-                    # fallback
-                    if CheckAction in legal_actions:
-                        return CheckAction()
-                    return FoldAction()
-                else:
-                    # 'weak' => fold or small chance to raise
-                    if random.random() < 0.2 and RaiseAction in legal_actions:
-                        desired_raise = int(2.2 * BIG_BLIND)
-                        action = self.safe_raise(round_state, desired_raise, my_pip, my_stack)
-                        if isinstance(action, RaiseAction):
-                            self.preflop_raiser = True
-                            self.raised_this_street += 1
-                            self.pot += (action.amount - my_pip)
-                            return action
-                    # fallback
-                    if CheckAction in legal_actions:
-                        return CheckAction()
-                    return FoldAction()
+                return FoldAction()
+
+            if continue_cost <= 4:
+                if RaiseAction in legal_actions:
+                    return self.safe_raise(round_state, 10, my_pip, my_stack)
+            return FoldAction()
+
+        # CASE 3: No raise at all => we open
+        else:
+            if my_hand_tier == 'premium':
+                desired_open = 20
+            elif my_hand_tier == 'strong':
+                desired_open = 15
+            elif my_hand_tier == 'medium':
+                desired_open = 10
+            else:
+                return FoldAction()
+
+            if RaiseAction in legal_actions:
+                action = self.safe_raise(round_state, desired_open, my_pip, my_stack)
+                if isinstance(action, RaiseAction):
+                    self.preflop_raiser = True
+                    self.raised_this_street += 1
+                    self.pot += (action.amount - my_pip)
+                    return action
+            return FoldAction()
 
     # -------------------------------
     # POST-FLOP LOGIC
@@ -588,49 +667,41 @@ class Player(Bot):
         continue_cost,
         my_stack,
         board_texture,
-        opp_bounty_play
+        opp_bounty_play,
+        opp_pip
     ):
         """
-        Illustrative postflop code. We add:
-         - Avoid re-re-raising with pure air (hand_strength < 0.03)
-         - If board is paired & big bets => fold if not near-nuts & opp seldom bluffs
+        Example c-bet approach if we were preflop raiser, 
+        plus usage of opp_bounty_play to bump bet sizes 10%.
         """
         opponent_type = self.categorize_opponent()
         my_pip = round_state.pips[active]
-        opp_pip = round_state.pips[1 - active]
         bluff_prob = self.predict_bluff_chance()
 
-        # If we face big bet on a paired board & bluff prob is small => fold unless strong
-        if self.board_has_paired(board_cards) and continue_cost > 0.5 * my_stack and bluff_prob < 0.1:
-            if hand_strength < 0.85:
-                # fold
-                if FoldAction in legal_actions:
-                    return FoldAction()
-                if CallAction in legal_actions:
-                    return CallAction()
-                return CheckAction()
+        last_action = self.detect_opponent_action(round_state, active)
+        if last_action in ['raise', 'bet']:
+            self.range_reduction('raise', board_cards)
 
-        # If re-raised after we've raised
-        if self.raised_this_street >= 1 and (opp_pip > my_pip):
-            if hand_strength < 0.03:
-                # don't keep re-bluffing
-                if continue_cost < 0.05 * my_stack and CallAction in legal_actions:
-                    return CallAction()
-                return FoldAction()
+        # If turn/river & board is wet => fold medium/weak to big aggression
+        if round_state.street >= 4:
+            my_made_category = self.categorize_made_hand(my_cards, board_cards)
+            if (opp_pip > my_pip) and (my_made_category in ['weak_made', 'medium_made']):
+                if board_texture == 'wet' and continue_cost > 0.3 * my_stack and bluff_prob < 0.2:
+                    if FoldAction in legal_actions:
+                        return FoldAction()
 
-        # Normal c-bet logic or calls
-        # e.g., if self.preflop_raiser, do a standard bet...
         if self.preflop_raiser:
-            # c-bet if hand_strength > pot_odds
             if hand_strength > pot_odds:
                 desired_bet = self.calculate_bet_size(hand_strength, self.street, current_pot, board_texture)
+                if opp_bounty_play:
+                    desired_bet = int(desired_bet * 1.1)  # 10% bigger if their bounty rank is out
+
                 if self.raised_this_street < 2 and RaiseAction in legal_actions:
                     action = self.safe_raise(round_state, desired_bet, my_pip, my_stack)
                     if isinstance(action, RaiseAction):
                         self.raised_this_street += 1
                         self.pot += (action.amount - my_pip)
                         return action
-                # fallback call
                 if CallAction in legal_actions and hand_strength > (pot_odds - 0.05):
                     self.pot += (opp_pip - my_pip)
                     return CallAction()
@@ -644,7 +715,7 @@ class Player(Bot):
                     return CallAction()
                 return FoldAction()
         else:
-            # If we didn't raise preflop => adapt
+            # adapt to villain type
             if opponent_type == 'Overly Aggressive':
                 if hand_strength > 0.4 and CallAction in legal_actions:
                     return CallAction()
@@ -654,6 +725,8 @@ class Player(Bot):
             elif opponent_type == 'LAG':
                 if hand_strength > 0.6 and RaiseAction in legal_actions:
                     desired_bet = self.calculate_bet_size(hand_strength, self.street, current_pot, board_texture)
+                    if opp_bounty_play:
+                        desired_bet = int(desired_bet * 1.1)
                     if self.raised_this_street < 2:
                         action = self.safe_raise(round_state, desired_bet, my_pip, my_stack)
                         if isinstance(action, RaiseAction):
@@ -668,6 +741,8 @@ class Player(Bot):
             else:  # 'TAG'
                 if hand_strength > 0.55 and RaiseAction in legal_actions:
                     desired_bet = self.calculate_bet_size(hand_strength, self.street, current_pot, board_texture)
+                    if opp_bounty_play:
+                        desired_bet = int(desired_bet * 1.1)
                     if self.raised_this_street < 2:
                         action = self.safe_raise(round_state, desired_bet, my_pip, my_stack)
                         if isinstance(action, RaiseAction):
@@ -679,6 +754,21 @@ class Player(Bot):
                 if CheckAction in legal_actions:
                     return CheckAction()
                 return FoldAction()
+
+    # -------------------------------
+    # DETECT OPPONENT ACTION
+    # -------------------------------
+    def detect_opponent_action(self, round_state, active):
+        opp_pip = round_state.pips[1 - active]
+        my_pip = round_state.pips[active]
+        if opp_pip > self.raised_this_street:
+            if opp_pip > my_pip:
+                return 'raise'
+            else:
+                return 'bet'
+        if opp_pip == my_pip and opp_pip != 0:
+            return 'call'
+        return 'check'
 
 
 if __name__ == '__main__':

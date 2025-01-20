@@ -39,6 +39,7 @@ class Player(Bot):
         self.num_showdown_wins = 0
         self.num_showdown_losses = 0
         self.play_checkfold = False
+        self.checkfold_threshold = 4000
 
         self.prev_opp_pips = 0
         self.prev_my_pips = 0
@@ -79,6 +80,104 @@ class Player(Bot):
 
         # Define tight hand range for aggressive opponents
         self.tight_hand_range = self.generate_tight_hand_range()
+    
+    def is_premium_hand(self, hole_cards):
+        rank1, suit1 = hole_cards[0][0], hole_cards[0][1]
+        rank2, suit2 = hole_cards[1][0], hole_cards[1][1]
+        ranks = '23456789TJQKA'
+        idx1 = ranks.index(rank1)
+        idx2 = ranks.index(rank2)
+        is_pair = rank1 == rank2
+        is_suited = suit1 == suit2
+        high_rank = rank1 if idx1 > idx2 else rank2
+        low_rank = rank2 if idx1 > idx2 else rank1
+
+        # All Pocket Pairs
+        if is_pair:
+            return True
+
+        # All Aces
+        if 'A' in [rank1, rank2]:
+            return True
+
+        # King-Ten or Better (KT+)
+        
+
+        # Suited Connectors Starting from Eight-Nine (89s+)
+        if is_suited:
+            gap = abs(idx1 - idx2)
+            if gap == 1 and ranks.index(low_rank) >= ranks.index('K'):
+                return True
+
+        return False
+
+    def is_strong_hand(self, hole_cards):
+        rank1, suit1 = hole_cards[0][0], hole_cards[0][1]
+        rank2, suit2 = hole_cards[1][0], hole_cards[1][1]
+        ranks = '23456789TJQKA'
+        idx1 = ranks.index(rank1)
+        idx2 = ranks.index(rank2)
+        is_pair = rank1 == rank2
+        is_suited = suit1 == suit2
+        high_rank = rank1 if idx1 > idx2 else rank2
+        low_rank = rank2 if idx1 > idx2 else rank1
+
+        # Suited Aces
+        if is_suited and 'A' in [rank1, rank2] and ranks.index(low_rank) >= ranks.index('5'):
+            return True
+        
+        if (high_rank == 'K' and ranks.index(low_rank) >= ranks.index('T')):
+            return True
+
+        # Queen-Jack or Better (QJ+)
+        if (high_rank == 'Q' and ranks.index(low_rank) >= ranks.index('J')):
+            return True
+
+        # Suited Connectors (76s+)
+        if is_suited and abs(idx1 - idx2) == 1 and ranks.index(low_rank) >= ranks.index('7'):
+            return True
+
+        return False
+
+    def is_speculative_hand(self, hole_cards):
+        rank1, suit1 = hole_cards[0][0], hole_cards[0][1]
+        rank2, suit2 = hole_cards[1][0], hole_cards[1][1]
+        ranks = '23456789TJQKA'
+        idx1 = ranks.index(rank1)
+        idx2 = ranks.index(rank2)
+        is_pair = rank1 == rank2
+        is_suited = suit1 == suit2
+        high_rank = rank1 if idx1 > idx2 else rank2
+        low_rank = rank2 if idx1 > idx2 else rank1
+
+        # Suited Aces (A2s-A4s)
+        if is_suited and 'A' in [rank1, rank2] and ranks.index(low_rank) <= ranks.index('5'):
+            return True
+
+        # Lower Suited Connectors (65s+, 87s+)
+        if is_suited and abs(idx1 - idx2) == 1 and ranks.index(low_rank) >= ranks.index('3'):
+            return True
+
+        return False
+
+    def is_weak_hand(self, hole_cards):
+        # Any hand not categorized as Premium, Strong, or Speculative is Weak
+        return not (self.is_premium_hand(hole_cards) or 
+                    self.is_strong_hand(hole_cards) or 
+                    self.is_speculative_hand(hole_cards))
+
+    def categorize_hand(self, hole_cards):
+        '''
+        Categorizes the current hand into Premium, Strong, Speculative, or Weak.
+        '''
+        if self.is_premium_hand(hole_cards):
+            return 'Premium'
+        elif self.is_strong_hand(hole_cards):
+            return 'Strong'
+        elif self.is_speculative_hand(hole_cards):
+            return 'Speculative'
+        else:
+            return 'Weak'
 
     def generate_tight_hand_range(self):
         '''
@@ -171,23 +270,21 @@ class Player(Bot):
         opp_bankroll = self.opp_bankroll
         round_num = game_state.round_num
         big_blind = bool(active)
+        self.current_hand_category =  self.categorize_hand(round_state.hands[active])
 
         # Update your own bounty from the current round
-        self.my_bounty = round_state.bounties[active]
 
-        bankroll_lead = my_bankroll - opp_bankroll
-        if round_num % 2 == 1:
-            checkfold_loss = (500 - round_num + 1) * 21
-        else:
-            if big_blind:
-                checkfold_loss = 24
-                checkfold_loss += (500 - round_num) * 21
-            else:
-                checkfold_loss = 18
-                checkfold_loss += (500 - round_num) * 21
-
-        if bankroll_lead > checkfold_loss + 1:
-            self.play_checkfold = False
+        if my_bankroll > self.checkfold_threshold + 1:
+            if self.play_checkfold == False:
+                print('Playing checkfold starting at round', round_num)
+                print('opp post flop raise rate: ', self.opp_raise_rate)
+                print('opp fold rate', self.opp_fold_rate)
+                print('our fold rate', self.our_fold_rate)
+                print('our showdown wins', self.our_showdown_wins)
+                print('our showdown losses', self.our_showdown_losses)
+            self.play_checkfold = True
+        # else:
+        #     self.play_checkfold = False
 
         if round_num >= 29 and round_num % 10 == 0:
             self.opp_raise_rate = (
@@ -276,7 +373,7 @@ class Player(Bot):
         for bet_entry in self.opp_bets:
             bet, board = bet_entry
             if opp_cards != ['', '']:
-                _ITERS = 200
+                _ITERS = 500
                 opp_strength_at_bet, _ = self.calculate_strength(opp_cards, _ITERS, board, [])
                 self.opp_bets_strength.append({'bet': bet, 'strength': opp_strength_at_bet})
 
@@ -312,8 +409,8 @@ class Player(Bot):
         bet_amount = bet_amount * (pot_size + 25)
         
         # Ensure minimum bet is at least 12 or 20% of the pot
-        if int(bet_amount) <= 10:
-            bet_amount = max(12, pot_size * 0.2)
+        # if int(bet_amount) <= 10:
+        #     bet_amount = max(12, pot_size * 0.2)
         
         # Cap the bet to 398 to encourage opponents to call
         bet_amount = min(bet_amount, 398)
@@ -394,29 +491,14 @@ class Player(Bot):
         net_cost = 0
 
         # Adjust hand range based on opponent aggression
-        if self.opp_bb_raise_rate >= 0.09 or self.opp_sb_raise_rate >= 0.09:  # Threshold for high aggression
-            # Manually tighten the range to pairs, suited connectors, and strong aces
-            if not self.tighten_hand_range(my_cards):
-                # If hand is not in the tight range, either fold or make a small bet
-                if CheckAction in legal_actions:
-                    return CheckAction()
-                if FoldAction in legal_actions:
-                    return FoldAction()
-                else:
-                    small_bet = 12  # Define a small bet amount
-                    if RaiseAction in legal_actions and small_bet <= max_raise:
-                        return RaiseAction(small_bet)
-                    else:
-                        return CallAction() if CallAction in legal_actions else FoldAction()
 
         if self.play_checkfold:
             # Replace CheckAction with a small bet
             if FoldAction in legal_actions:
                 my_action = FoldAction()
                 self.board_folded = True
-            elif RaiseAction in legal_actions:
-                small_bet = 12  # Define a small bet amount
-                my_action = RaiseAction(small_bet)
+            elif CheckAction in legal_actions:
+                my_action = CheckAction()
             elif CallAction in legal_actions:
                 my_action = CallAction()
             else:
@@ -441,142 +523,238 @@ class Player(Bot):
 
         # Board statistics
         self.current_pot = opp_pips + my_pips
-        board_total = self.current_pot
         board_cont_cost = continue_cost
-        pot_total = my_pips + opp_pips + board_total
+        
+
+        if self.hole_strength[street] is None:
+                NUM_ITERS = 500
+                hole_cards = my_cards  # Assuming two hole cards
+                dead_cards = list(set(my_cards) - set(hole_cards))
+                hand_strength, _ = self.calculate_strength(hole_cards, NUM_ITERS, board_cards, dead_cards)
+                self.hole_strength[street] = hand_strength
+        else:
+            hand_strength = self.hole_strength[street]
 
         if street == 0:
             # Preflop strategy
+            if self.opp_bb_raise_rate >= 0.09 or self.opp_sb_raise_rate >= 0.09:
+                    print(my_cards, "IN TIGHT RANGE", self.tighten_hand_range(my_cards), self.opp_bb_raise_rate, self.opp_sb_raise_rate) 
+                    if not self.tighten_hand_range(my_cards):
+                        if CheckAction in legal_actions:
+                            return CheckAction()
+                        if FoldAction in legal_actions:
+                            return FoldAction()
+                        else:
+                            return CallAction() if CallAction in legal_actions else FoldAction()
             if active == 0:
                 if board_cont_cost == 1:
-                    if self.hole_strength[street] is not None and self.hole_strength[street] < 0.39:
-                        my_action = FoldAction()
-                        return my_action
-                    elif self.hole_strength[street] is not None and self.hole_strength[street] < 0.5:
-                        if CallAction in legal_actions:
-                            my_action = CallAction()
-                            net_cost += board_cont_cost
-                        else:
-                            # Replace CheckAction with a small bet
-                            if CheckAction in legal_actions:
-                                return CheckAction()
-                            else:
-                                my_action = FoldAction()
-                        return my_action
-                    else:
-                        if self.hole_strength[street] is not None:
-                            raise_amount = self.get_bet_amount(self.hole_strength[street], self.current_pot)
-                        else:
-                            raise_amount = 6
+                    if self.current_hand_category in ['Premium', 'Strong']:
+                        # Play aggressively
+                        raise_amount = self.get_bet_amount(self.hole_strength[0], self.current_pot)
                         raise_amount = max(min_raise, raise_amount)
                         raise_amount = min(max_raise, raise_amount, 398)  # Cap at 398
                         my_action = RaiseAction(int(raise_amount))
                         net_cost += raise_amount - my_pips
+                        
+                        return my_action
+                    elif self.current_hand_category == 'Speculative':
+                        # Play cautiously
+                        if CallAction in legal_actions:
+                            my_action = CallAction()
+                            net_cost += board_cont_cost
+                            
+                            return my_action
+                        else:
+                            # If can't call, consider folding or a small raise
+                            if CheckAction in legal_actions:
+                                
+                                return CheckAction()
+                            else:
+                                
+                                my_action = FoldAction()
+                                return my_action
+                    else:
+                        # Weak hands: Fold
+                        if CheckAction in legal_actions:
+                                
+                            return CheckAction()
+                        else:
+                            my_action = FoldAction()
                         return my_action
                 else:
                     # Opp raised from big blind
-                    self.opp_bb_raise_count += 1
-                    pot_odds = board_cont_cost / (pot_total + board_cont_cost) if (pot_total + board_cont_cost) > 0 else 0
-                    raw_hand_strength = self.hole_strength[street] if self.hole_strength[street] is not None else 0.5
+                    if continue_cost > 12:
+                        self.opp_bb_raise_count += 1
+                    pot_odds = board_cont_cost / (self.current_pot + board_cont_cost) if (self.current_pot + board_cont_cost) > 0 else 0
+                    raw_hand_strength = self.hole_strength[0] if self.hole_strength[0] is not None else 0.5
+
+                    # Adjust hand_strength based on opponent's raise rate
                     hand_strength = (
                         raw_hand_strength - 
                         2 * (self.opp_bb_raise_rate ** 2) 
                         if self.opp_bb_raise_rate is not None 
                         else raw_hand_strength - 2 * (0.2 ** 2)
                     )
-                    if hand_strength >= pot_odds:
+
+                    if self.current_hand_category in ['Premium', 'Strong'] and hand_strength >= pot_odds:
                         if raw_hand_strength > 0.7:
-                            raise_amount = min(max_raise, self.get_bet_amount(hand_strength, self.current_pot), 398)  # Cap at 398
+                            raise_amount = min(max_raise, self.get_bet_amount(hand_strength, self.current_pot), 398)
+                            raise_amount = max(min_raise, raise_amount)
                             my_action = RaiseAction(int(raise_amount))
                             net_cost += raise_amount - my_pips
+                            
                         elif CallAction in legal_actions:
                             my_action = CallAction()
                             net_cost += board_cont_cost
+                            
                         else:
-                            # Replace CheckAction with a small bet
                             if CheckAction in legal_actions:
-                                return CheckAction
+                                
+                                return CheckAction()
                             else:
+                                
                                 my_action = FoldAction()
                         return my_action
-                    elif CallAction in legal_actions:
-                        # Replace CheckAction with a small bet
-                        my_action = CallAction()
-                        return my_action
+                    elif self.current_hand_category in ['Speculative'] and hand_strength >= pot_odds:
+                        if CallAction in legal_actions:
+                            my_action = CallAction()
+                            net_cost += board_cont_cost
+                            
+                            return my_action
+                        else:
+                            if CheckAction in legal_actions:
+                                
+                                return CheckAction()
+                            else:
+                                
+                                my_action = FoldAction()
+                                return my_action
                     else:
-                        my_action = FoldAction()
-                        return my_action
+                        if CallAction in legal_actions:
+                            my_action = CallAction()
+                            
+                            return my_action
+                        else:
+
+                            if CheckAction in legal_actions:
+                                return CheckAction()
+                            else:
+                                my_action = FoldAction()
+                            return my_action
             else:
                 # We are big blind
                 if board_cont_cost > 0:
-                    self.opp_sb_raise_count += 1
-                    pot_odds = board_cont_cost / (pot_total + board_cont_cost) if (pot_total + board_cont_cost) > 0 else 0
-                    raw_hand_strength = self.hole_strength[street] if self.hole_strength[street] is not None else 0.5
+                    if continue_cost > 12:
+                        self.opp_sb_raise_count += 1
+                    pot_odds = board_cont_cost / (self.current_pot + board_cont_cost) if (self.current_pot + board_cont_cost) > 0 else 0
+                    raw_hand_strength = self.hole_strength[0] if self.hole_strength[0] is not None else 0.5
+
+                    # Adjust hand_strength based on opponent's raise rate
                     hand_strength = (
                         raw_hand_strength - 
                         2 * (self.opp_sb_raise_count ** 2) 
                         if self.opp_sb_raise_count is not None 
                         else raw_hand_strength - 2 * (0.2 ** 2)
                     )
-                    if hand_strength >= pot_odds:
-                        raise_amount = min(max_raise, self.get_bet_amount(hand_strength, self.current_pot), 398)  # Cap at 398
+
+                    if self.current_hand_category in ['Premium', 'Strong']:
+                        print(my_cards, raw_hand_strength)
+                        raise_amount = min(max_raise, self.get_bet_amount(hand_strength, self.current_pot), 398)
+                        raise_amount = max(min_raise, raise_amount)
                         raise_cost = raise_amount - my_pips
-                        if RaiseAction in legal_actions and (raise_cost <= my_stack - net_cost) and raw_hand_strength > 0.7:
+                        if RaiseAction in legal_actions and (raise_cost <= my_stack - net_cost) and hand_strength > 0.7:
                             my_action = RaiseAction(int(raise_amount))
                             net_cost += raise_cost
                         elif CallAction in legal_actions:
                             my_action = CallAction()
                             net_cost += board_cont_cost
                         else:
-                            # Replace CheckAction with a small bet
                             if CheckAction in legal_actions:
+                                
                                 my_action = CheckAction()
                             else:
                                 my_action = FoldAction()
                         return my_action
+                    elif self.current_hand_category in ['Speculative'] and hand_strength >= pot_odds:
+                        if CallAction in legal_actions:
+                            my_action = CallAction()
+                            net_cost += board_cont_cost
+                        
+                            return my_action
+                        else:
+                            if CheckAction in legal_actions:
+                                my_action = CheckAction()
+                            else:
+                                my_action = FoldAction()
+                            return my_action
                     else:
-                        my_action = FoldAction()
+                        if CheckAction in legal_actions:
+                                
+                            return CheckAction()
+                        else:
+                            my_action = FoldAction()
                         return my_action
                 else:
                     self.opp_sb_call_count += 1
-                    if self.hole_strength[street] is not None and self.hole_strength[street] > 0.7:
-                        raise_amount = min(max_raise, self.get_bet_amount(self.hole_strength[street], self.current_pot), 398)  # Cap at 398
-                        my_action = RaiseAction(raise_amount)
-                        net_cost += raise_amount - my_pips
-                    elif self.hole_strength[street] is not None and self.hole_strength[street] > random.random():
-                        raise_amount = min(max_raise, self.get_bet_amount(self.hole_strength[street], self.current_pot), 398)  # Cap at 398
-                        my_action = RaiseAction(raise_amount)
-                        net_cost += raise_amount - my_pips
+                    pot_odds = board_cont_cost / (self.current_pot + board_cont_cost) if (self.current_pot + board_cont_cost) > 0 else 0
+                    if self.current_hand_category in ['Premium', 'Strong']  and hand_strength >= pot_odds:
+                        if RaiseAction in legal_actions:
+                            raise_amount = min(max_raise, self.get_bet_amount(self.hole_strength[0], self.current_pot), 398)
+                            raise_amount = max(min_raise, raise_amount)
+                            my_action = RaiseAction(raise_amount)
+                            net_cost += raise_amount - my_pips
+                            
+                            return my_action
+                        else:
+                            if CheckAction in legal_actions:
+                                my_action = CheckAction()
+
+                            else:
+                                my_action = FoldAction()
+                                
+                            return my_action
+                    elif self.current_hand_category in ['Speculative']:
+                        if self.hole_strength[0] > 0.6:
+                            if CallAction in legal_actions:
+                                my_action = CallAction()
+                                net_cost += board_cont_cost
+                               
+                                return my_action
+                            else:
+                                if CheckAction in legal_actions:
+                                    my_action = CheckAction()
+                                    
+                                else:
+                                    my_action = FoldAction()
+                                    
+                                return my_action
+                        else:
+                            if CheckAction in legal_actions:
+                                
+                                return CheckAction()
+                            else:
+                                my_action = FoldAction()
+                            return my_action
                     else:
-                        # Replace CheckAction with a small bet
                         if CheckAction in legal_actions:
-                            my_action = CheckAction()
+                                
+                            return CheckAction()
                         else:
                             my_action = FoldAction()
-                    return my_action
-
-        # Calculate hand strength if not already done
-        if self.hole_strength[street] is None:
-            NUM_ITERS = 100
-            hole_cards = my_cards  # Assuming two hole cards
-            dead_cards = list(set(my_cards) - set(hole_cards))
-            hand_strength, _ = self.calculate_strength(hole_cards, NUM_ITERS, board_cards, dead_cards)
-            self.hole_strength[street] = hand_strength
-        else:
-            hand_strength = self.hole_strength[street]
-
+                        return my_action
         # EV Calculation
         ev = self.calculate_ev(hand_strength, self.current_pot, board_cont_cost, my_cards, board_cards)
-        pot_odds = board_cont_cost / (pot_total + board_cont_cost) if (pot_total + board_cont_cost) > 0 else 0
-        if ev > pot_odds:
+        pot_odds = board_cont_cost / (self.current_pot + board_cont_cost) if (self.current_pot + board_cont_cost) > 0 else 0
+
+        if hand_strength > pot_odds:
             #print("ev > pot_odds", ev, pot_odds)
             # Positive EV: Decide to Raise or Call based on action availability
             raise_amount = self.get_bet_amount(hand_strength, self.current_pot)
             raise_amount = max(min_raise, raise_amount)
-            raise_amount = min(max_raise, 398)
+            raise_amount = min(max_raise, 398, raise_amount)
             raise_cost = raise_amount - my_pips
 
-            if RaiseAction in legal_actions and (raise_cost <= my_stack - net_cost):
+            if RaiseAction in legal_actions:
                 my_action = RaiseAction(int(raise_amount))
                 net_cost += raise_amount - my_pips
                 self.our_post_flop_raise_count += 1

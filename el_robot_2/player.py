@@ -346,26 +346,6 @@ class Player(Bot):
     # Expected Value Calculation
     # -------------------------
     
-    def calculate_ev(self, hand_strength, pot, continue_cost, my_cards, board_cards):
-        '''
-        Calculates the Expected Value (EV) based on the current hand strength and bounty status.
-        Checks if the bounty card is in the board or in the hand.
-        '''
-        normal_winnings = pot + continue_cost
-    
-        # Check if any of our hand cards are on the board (indicating our bounty card is exposed)
-        bounty_card_in_play = self.has_my_bounty_hit(my_cards, board_cards ,self.my_bounty)
-    
-        # Calculate adjusted winnings based on bounty presence
-        if bounty_card_in_play:
-            adjusted_win = 1.5 * normal_winnings + 10
-        else:
-            adjusted_win = normal_winnings
-    
-        # Calculate EV: (Probability of Winning * Adjusted Win) - (Probability of Losing * Continue Cost)
-        ev = (hand_strength * adjusted_win) - ((1 - hand_strength) * continue_cost)
-        return ev
-    
     # -------------------------
     # Action Decision Method
     # -------------------------
@@ -375,121 +355,10 @@ class Player(Bot):
                 return True
         return False
     
-    def get_action(self, game_state, round_state, active):
-        '''
-        Determines the actions to take based on the current game state.
-        '''
-        legal_actions = round_state.legal_actions()
-        street = round_state.street
-        my_cards = round_state.hands[active]
-        board_cards = round_state.deck[:street]  # Assuming single board
-        my_pips = round_state.pips[active]
-        opp_pips = round_state.pips[1 - active]
-        continue_cost = opp_pips - my_pips
-        my_stack = round_state.stacks[active]
-        opp_stack = round_state.stacks[1 - active]
-        min_raise, max_raise = round_state.raise_bounds()
-        net_cost = 0
-    
-        # Assume current_bounty is provided in game_state
-        self.my_bounty = round_state.bounties[active]
-    
-        # Calculate hand strength and expected payout using Monte Carlo simulation
-        if self.hole_strength[street] is None:
-            NUM_ITERS = 500
-            hole_cards = my_cards  # Assuming two hole cards
-            dead_cards = []  # Adjust based on game state if needed
-            hand_strength, expected_payout, draw_prob = self.calculate_strength(
-                hole_cards, 
-                NUM_ITERS, 
-                board_cards, 
-                dead_cards, 
-                self.my_bounty, 
-                self.current_pot, 
-                opp_known_cards=None  # Adjust if opponent's cards are known
-            )
-            self.hole_strength[street] = (hand_strength, expected_payout, draw_prob)
-        else:
-            hand_strength, expected_payout, draw_prob = self.hole_strength[street]
-    
-        # Calculate EV
-        ev = self.calculate_ev(hand_strength, self.current_pot, continue_cost, my_cards, board_cards)
-    
-        # Decision-making based on EV and bounty status
-        if ev > 0:
-            # Positive EV: Raise or Call
-            if 'Raise' in legal_actions:
-                raise_amount = self.get_bet_amount(hand_strength, self.current_pot, my_cards, board_cards)
-                raise_amount = max(min_raise, raise_amount)
-                raise_amount = min(max_raise, 398, raise_amount)
-                my_action = RaiseAction(int(raise_amount))
-                net_cost += raise_amount - my_pips
-                self.our_post_flop_raise_count += 1
-                return my_action
-            elif 'Call' in legal_actions:
-                my_action = CallAction()
-                net_cost += continue_cost
-                return my_action
-            elif 'Check' in legal_actions:
-                return CheckAction()
-            else:
-                return FoldAction()
-        else:
-            # Negative EV: Decide to Fold or Call based on additional bounty considerations
-            # Define a threshold to decide when to call with negative EV
-            some_threshold = 20  # Example threshold; adjust based on strategy
-    
-            # Additional Consideration: If the bounty card is on the board or likely to be revealed, consider calling
-            bounty_card_in_play = self.has_my_bounty_hit(my_cards, board_cards ,self.my_bounty)
-            if bounty_card_in_play and continue_cost < some_threshold:
-                if 'Call' in legal_actions:
-                    my_action = CallAction()
-                    net_cost += continue_cost
-                    return my_action
-    
-            # Otherwise, proceed with standard negative EV decision-making
-            if 'Call' in legal_actions and continue_cost < some_threshold:
-                my_action = CallAction()
-                net_cost += continue_cost
-                return my_action
-            elif 'Check' in legal_actions:
-                return CheckAction()
-            else:
-                return FoldAction()
     
     # -------------------------
     # Betting Strategy Method
     # -------------------------
-    
-    def get_bet_amount(self, strength, pot_size, my_cards, board_cards):
-        '''
-        Determines the bet amount based on hand strength, pot size, and potential bounty reward using a polynomial model.
-        '''
-        # Polynomial model adjusted to cap at 1.3 before scaling
-        bet_amount = (
-            -106.02197802198144 + 
-            616.7786499215267 * strength - 
-            1310.2537938252638 * (strength ** 2) + 
-            1206.0439560439938 * (strength ** 3) - 
-            405.54683411827534 * (strength ** 4)
-        )
-        bet_amount = min(1.3, bet_amount)
-        bet_amount = max(0, bet_amount)
-        bet_amount = bet_amount * (pot_size + 25)
-        
-        # Adjust bet based on bounty presence
-        bounty_bonus = 0
-        if self.has_my_bounty_hit(my_cards, board_cards, self.my_bounty):
-            bounty_bonus = 50  # Example bonus; adjust as per game rules
-        bet_amount += bounty_bonus
-    
-        # Ensure minimum bet is at least 20% of the pot
-        bet_amount = max(bet_amount, pot_size * 0.2)
-    
-        # Cap the bet to 398 to encourage opponents to call
-        bet_amount = min(bet_amount, 398)
-        #print(f"Calculated bet amount: {bet_amount}")
-        return int(bet_amount)
     
     # -------------------------
     # Bounty and Round Handling Methods
@@ -629,99 +498,12 @@ class Player(Bot):
     # EV Calculation Method (Alternate)
     # -------------------------
     
-    def calculate_ev_alt(self, hand_strength, expected_payout, pot, continue_cost, my_cards, board_cards):
-        '''
-        An alternative EV calculation method that utilizes expected payout.
-        '''
-        # EV = (Probability of Winning * Expected Payout) - Cost to Continue
-        ev = (hand_strength * expected_payout) - continue_cost
-        return ev
+
     
     # -------------------------
     # Get Action Method (Detailed)
     # -------------------------
     
-    def get_action(self, game_state, round_state, active):
-        '''
-        Determines the actions to take based on the current game state.
-        '''
-        legal_actions = round_state.legal_actions()
-        street = round_state.street
-        my_cards = round_state.hands[active]
-        board_cards = round_state.deck[:street]  # Assuming single board
-        my_pips = round_state.pips[active]
-        opp_pips = round_state.pips[1 - active]
-        continue_cost = opp_pips - my_pips
-        my_stack = round_state.stacks[active]
-        opp_stack = round_state.stacks[1 - active]
-        min_raise, max_raise = round_state.raise_bounds()
-        net_cost = 0
-
-        # Assume current_bounty is provided in game_state
-        self.my_bounty = round_state.bounties[active]
-
-        # Calculate hand strength and expected payout using Monte Carlo simulation
-        if self.hole_strength[street] is None:
-            NUM_ITERS = 500
-            hole_cards = my_cards  # Assuming two hole cards
-            dead_cards = []  # Adjust based on game state if needed
-            hand_strength, expected_payout, draw_prob = self.calculate_strength(
-                hole_cards, 
-                NUM_ITERS, 
-                board_cards, 
-                dead_cards, 
-                self.my_bounty, 
-                self.current_pot, 
-                opp_known_cards=None  # Adjust if opponent's cards are known
-            )
-            self.hole_strength[street] = (hand_strength, expected_payout, draw_prob)
-        else:
-            hand_strength, expected_payout, draw_prob = self.hole_strength[street]
-
-        # Calculate EV
-        ev = self.calculate_ev(hand_strength, self.current_pot, continue_cost, my_cards, board_cards)
-
-        # Decision-making based on EV and bounty status
-        if ev > 0:
-            # Positive EV: Raise or Call
-            if 'Raise' in legal_actions:
-                raise_amount = self.get_bet_amount(hand_strength, self.current_pot, my_cards, board_cards)
-                raise_amount = max(min_raise, raise_amount)
-                raise_amount = min(max_raise, 398, raise_amount)
-                my_action = RaiseAction(int(raise_amount))
-                net_cost += raise_amount - my_pips
-                self.our_post_flop_raise_count += 1
-                return my_action
-            elif 'Call' in legal_actions:
-                my_action = CallAction()
-                net_cost += continue_cost
-                return my_action
-            elif 'Check' in legal_actions:
-                return CheckAction()
-            else:
-                return FoldAction()
-        else:
-            # Negative EV: Decide to Fold or Call based on additional bounty considerations
-            # Define a threshold to decide when to call with negative EV
-            some_threshold = 20  # Example threshold; adjust based on strategy
-
-            # Additional Consideration: If the bounty card is on the board or likely to be revealed, consider calling
-            bounty_card_in_play = self.has_my_bounty_hit(my_cards, board_cards ,self.my_bounty)
-            if bounty_card_in_play and continue_cost < some_threshold:
-                if 'Call' in legal_actions:
-                    my_action = CallAction()
-                    net_cost += continue_cost
-                    return my_action
-
-            # Otherwise, proceed with standard negative EV decision-making
-            if 'Call' in legal_actions and continue_cost < some_threshold:
-                my_action = CallAction()
-                net_cost += continue_cost
-                return my_action
-            elif 'Check' in legal_actions:
-                return CheckAction()
-            else:
-                return FoldAction()
 
     # -------------------------
     # Round Handling Methods
@@ -875,28 +657,6 @@ class Player(Bot):
         #print(f"Calculated bet amount: {bet_amount}")
         return int(bet_amount)
 
-    def calculate_ev(self, hand_strength, pot, continue_cost, my_cards, board_cards):
-        '''
-        Calculates the Expected Value (EV) based on the current hand strength and bounty status.
-        Checks if the bounty card is in the board or in the hand.
-        '''
-        normal_winnings = pot + continue_cost
-
-        # Check if any of our hand cards are on the board (indicating our bounty card is exposed)
-        bounty_card_in_play = self.has_my_bounty_hit(my_cards, board_cards ,self.my_bounty)
-
-        # Removed opponent bounty tracking
-
-        if bounty_card_in_play:
-            adjusted_win = 1.5 * normal_winnings + 10
-        else:
-            adjusted_win = normal_winnings
-
-        # Removed opponent bounty influence on adjusted_lose
-        adjusted_lose = continue_cost
-
-        ev = (hand_strength * adjusted_win) - ((1 - hand_strength) * adjusted_lose)
-        return ev
 
     def get_action(self, game_state, round_state, active):
         '''

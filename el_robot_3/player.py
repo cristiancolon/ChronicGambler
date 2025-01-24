@@ -17,20 +17,20 @@ import eval7
 
 class Player(Bot):
     '''
-    A pokerbot.
+    A poker-playing bot.
     '''
 
     def __init__(self):
         '''
-        Called when a new game starts. Called exactly once.
+        Initializes a new game. Called once at the start.
 
         Arguments:
-        Nothing.
+        None.
 
         Returns:
-        Nothing.
+        None.
         '''
-        self.preflop_dict = {'AAo':1,'KKo':2,'QQo':3,'JJo':4,'TTo':5,'99o':6,'88o':7,'AKs':8,'77o':9,'AQs':10,'AJs':11,'AKo':12,'ATs':13,
+        self.hand_rankings = {'AAo':1,'KKo':2,'QQo':3,'JJo':4,'TTo':5,'99o':6,'88o':7,'AKs':8,'77o':9,'AQs':10,'AJs':11,'AKo':12,'ATs':13,
                              'AQo':14,'AJo':15,'KQs':16,'KJs':17,'A9s':18,'ATo':19,'66o':20,'A8s':21,'KTs':22,'KQo':23,'A7s':24,'A9o':25,'KJo':26,
                              '55o':27,'QJs':28,'K9s':29,'A5s':30,'A6s':31,'A8o':32,'KTo':33,'QTs':34,'A4s':35,'A7o':36,'K8s':37,'A3s':38,'QJo':39,
                              'K9o':40,'A5o':41,'A6o':42,'Q9s':43,'K7s':44,'JTs':45,'A2s':46,'QTo':47,'44o':48,'A4o':49,'K6s':50,'K8o':51,'Q8s':52,
@@ -44,641 +44,643 @@ class Player(Bot):
                              '93o':144,'T2o':145,'T3o':146,'63s':147,'84o':148,'92o':149,'94o':150,'74o':151,'72s':152,'54o':153,'64o':154,'52s':155,'62s':156,
                              '83o':157,'42s':158,'82o':159,'73o':160,'53o':161,'63o':162,'32s':163,'43o':164,'72o':165,'52o':166,'62o':167,'42o':168,'32o':169,
                              }
-        
-        self.trials = 125
-        self.total_rounds = 0
-        self.already_won = False
-        self.nit = 0
-        self.opp_aggressive = False
 
-        self.switched_to_100 = False
-        self.switched_to_50 = False
+        self.simulation_trials = 125
+        self.round_counter = 0
+        self.game_victory = False
+        self.caution_level = 0
+        self.opponent_is_aggressive = False
 
+        self.switched_to_hundred = False
+        self.switched_to_fifty = False
 
+        self.min_raise_limit = 88
+        self.max_raise_limit = 32
+        self.call_limit = 88
 
-        self.small_blind_raise = 88
-        self.big_blind_raise = 32
-        self.big_blind_call = 88
+        self.current_round_bluff = False
+        self.opponent_pot_bets = 0
+        self.opponent_total_bets = 0
 
-        self.bluffed_this_round = False
-        self.num_opp_potbets = 0
-        self.num_opp_bets = 0
+        self.raise_chance = 0.2
+        self.double_raise_chance = 0.025
 
-        self.raise_fact = .2
-        self.reraise_fact = .025
+        self.bluff_pnl = 0
 
-        self.bluff_pm = 0
+        self.bluff_current_pnl = 0
+        self.bluff_wins = 0
+        self.bluff_losses = 0
 
-        self.bluffed_pm = 0
-        self.bluff_numwins = 0
-        self.bluff_numlosses = 0
+        self.double_bluff_pnl = 0
+        self.double_bluff_wins = 0
+        self.double_bluff_losses = 0
 
-        self.twobluff_pm = 0
-        self.twonumwins = 0
-        self.twonumlosses = 0
+        self.single_bluff_pnl = 0
+        self.single_bluff_wins = 0
+        self.single_bluff_losses = 0
 
-        self.onebluff_pm = 0
-        self.onenumwins = 0
-        self.onenumlosses = 0
+        self.double_bluff_multiplier = 1
+        self.double_bluff_disabled = False
+        self.single_bluff_multiplier = 1
+        self.single_bluff_disabled = False
+        self.bluff_multiplier = 1
+        self.bluff_disabled_state = 1
+        self.draw_bluff_multiplier = 1
+        self.draw_bluff_attempts = 0
+        self.draw_bluff_failures = 0
+        self.draw_bluff_pnl = 0
+        self.has_drawn_bluff = False
 
-        self.twobluff_fact = 1
-        self.twobluff_not_working = False
-        self.onebluff_fact = 1
-        self.onebluff_not_working = False
-        self.bluff_fact = 1
-        self.bluff_not_working = 1
-        self.draw_bluff_fact = 1
-        self.draw_bluff_games = 0
-        self.draw_bluff_losses = 0
-        self.draw_bluff_pm = 0
-        self.draw_bluff_this_round = False
-        
-        self.try_bluff = 1
+        self.bluff_attempt = 1
 
-        self.three_card_win = 0
-        self.three_card_bet = 0
-        self.check = 0
-        self.opp_check_bluffs = 0
-        self.opp_check_bluffing = False
+        self.triple_win_count = 0
+        self.triple_bet_count = 0
+        self.check_counter = 0
+        self.opponent_check_bluff_count = 0
+        self.opponent_check_is_bluffing = False
 
-        self.opp_checks = 0
-        self.my_checks = 0
-        self.last_cont = 0
-        self.opp_check_bluff_this_round = False
+        self.opponent_total_checks = 0
+        self.my_total_checks = 0
+        self.last_contribution_amount = 0
+        self.opponent_bluffed_this_round = False
 
-        self.opp_auction_wins = 0
-        self.opp_auction_bets = 0
-        self.opp_auction_bluffing = False
+        self.opponent_auction_wins = 0
+        self.opponent_auction_bets = 0
+        self.opponent_auction_is_bluffing = False
 
-        self.less_nit_call = False
-        self.less_nit_call_pm = 0
-        self.less_nit_call_losses = 0
+        self.reduced_nit_call = False
+        self.reduced_nit_pnl = 0
+        self.reduced_nit_losses = 0
 
-        self.unnit_not_working = False
+        self.nit_unreliable = False
 
-    def handle_new_round(self, game_state, round_state, active):
+        self.player_bounty = 0
+
+    def has_bounty_card(self, hole_cards, board_cards, target_rank):
+        for card in hole_cards + board_cards:
+            if card[0] == target_rank:
+                return True
+        return False
+
+    def handle_new_round(self, game_state, round_state, active_player):
         '''
-        Called when a new round starts. Called NUM_ROUNDS times.
+        Invoked at the start of each new round. Called NUM_ROUNDS times.
 
         Arguments:
         game_state: the GameState object.
         round_state: the RoundState object.
-        active: your player's index.
+        active_player: your player's index.
 
         Returns:
-        Nothing.
+        None.
         '''
-        my_bankroll = game_state.bankroll  # the total number of chips you've gained or lost from the beginning of the game to the start of this round
-        game_clock = game_state.game_clock  # the total number of seconds your bot has left to play this game
-        round_num = game_state.round_num  # the round number from 1 to NUM_ROUNDS
-        #my_cards = round_state.hands[active]  # your cards
-        big_blind = bool(active)  # True if you are the big blind
-        #print(f'round_num: {round_num}')
-        self.opp_checks = 0
-        self.my_checks = 0
-        self.last_cont = 0
-        self.opp_check_bluff_this_round = False
-        
-        self.opp_won_auction = False
-        self.opp_auction_bet_this_round = False
-        self.less_nit_call = False
+        player_balance = game_state.bankroll  # Total chips gained or lost since game start
+        remaining_time = game_state.game_clock  # Total seconds left to play
+        current_round_num = game_state.round_num  # Current round number
+        #player_hands = round_state.hands[active_player]  # Your current hand
+        is_big_blind = bool(active_player)  # True if you're the big blind
 
-        self.times_bet_preflop = 0
-        self.bluffed_this_round = False
-        self.twocheck = False
-        self.onecheck = False
-        self.bluff = False
-        self.draw_hit = 0
-        self.draw_hit_pct = 0
+        self.opponent_total_checks = 0
+        self.my_total_checks = 0
+        self.last_contribution_amount = 0
+        self.opponent_bluffed_this_round = False
 
-        self.draw_bluff_this_round = False
+        self.opponent_auction_won = False
+        self.opponent_auction_bet_current = False
+        self.reduced_nit_call = False
 
-        if my_bankroll > 600:
-            self.try_bluff = 1/4
+        self.times_preflop_bet = 0
+        self.current_round_bluff = False
+        self.double_check = False
+        self.single_check = False
+        self.is_currently_bluffing = False
+        self.draw_completion = 0
+        self.draw_completion_percentage = 0
+
+        self.has_drawn_bluff = False
+
+        if player_balance > 600:
+            self.bluff_attempt = 1/4
         else:
-            self.try_bluff = 1
+            self.bluff_attempt = 1
 
-        if self.bluff_not_working == 1:
-            self.bluff_fact = 1
-        elif self.bluff_not_working == 2:
-            self.bluff_fact = 2
+        if self.bluff_disabled_state == 1:
+            self.bluff_multiplier = 1
+        elif self.bluff_disabled_state == 2:
+            self.bluff_multiplier = 2
         else:
-            self.bluff_fact = 1/6
+            self.bluff_multiplier = 1/6
 
-        if not self.twobluff_not_working:
-            self.twobluff_fact = 1
+        if not self.double_bluff_disabled:
+            self.double_bluff_multiplier = 1
         else:
-            self.twobluff_fact = 1/6
+            self.double_bluff_multiplier = 1/6
 
-        if not self.onebluff_not_working:
-            self.onebluff_fact = 1
+        if not self.single_bluff_disabled:
+            self.single_bluff_multiplier = 1
         else:
-            self.onebluff_fact = 1/6
+            self.single_bluff_multiplier = 1/6
 
-        if my_bankroll > 2.295*(NUM_ROUNDS-round_num)+7.53*((NUM_ROUNDS-round_num)**(1/2)) + 50:
-            self.already_won = True
+        if player_balance > 2.295*(NUM_ROUNDS-current_round_num)+7.53*((NUM_ROUNDS-current_round_num)**0.5) + 50:
+            self.game_victory = True
 
-        if game_clock < 20 and round_num <= 333 and not self.switched_to_100:
-            self.trials = 100
-            self.switched_to_100 = True
-            self.nit = .03
-            #print('switch to 100')
+        if remaining_time < 20 and current_round_num <= 333 and not self.switched_to_hundred:
+            self.simulation_trials = 100
+            self.switched_to_hundred = True
+            self.caution_level = 0.03
+            #print('switched to 100 trials')
 
-        elif game_clock < 10 and round_num <= 666 and not self.switched_to_50:
-            self.trials = 50
-            self.switched_to_50 = True
-            self.nit = .06
-            #print('switch to 50')
+        elif remaining_time < 10 and current_round_num <= 666 and not self.switched_to_fifty:
+            self.simulation_trials = 50
+            self.switched_to_fifty = True
+            self.caution_level = 0.06
+            #print('switched to 50 trials')
 
-        if self.draw_bluff_losses >= 3 and self.draw_bluff_pm < -69:
-            self.draw_bluff_fact = 1/4
+        if self.draw_bluff_failures >= 3 and self.draw_bluff_pnl < -69:
+            self.draw_bluff_multiplier = 1/4
         else:
-            self.draw_bluff_fact = 1
-        
-        
+            self.draw_bluff_multiplier = 1
 
-    def handle_round_over(self, game_state, terminal_state, active):
+    def handle_round_over(self, game_state, terminal_state, active_player):
         '''
-        Called when a round ends. Called NUM_ROUNDS times.
+        Invoked at the end of each round. Called NUM_ROUNDS times.
 
         Arguments:
         game_state: the GameState object.
         terminal_state: the TerminalState object.
-        active: your player's index.
+        active_player: your player's index.
 
         Returns:
-        Nothing.
+        None.
         '''
-        my_delta = terminal_state.deltas[active]  # your bankroll change from this round
-        #print(my_delta)
-        previous_state = terminal_state.previous_state  # RoundState before payoffs
-        street = previous_state.street  # 0, 3, 4, or 5 representing when this round ended
-        #my_cards = previous_state.hands[active]  # your cards
-        #opp_cards = previous_state.hands[1-active]  # opponent's cards or [] if not revealed
+        balance_change = terminal_state.deltas[active_player]  # Change in your bankroll this round
+        #print(balance_change)
+        prior_state = terminal_state.previous_state  # RoundState before payouts
+        final_street = prior_state.street  # 0, 3, 4, or 5 indicating when the round ended
+        #player_hands = prior_state.hands[active_player]  # Your cards
+        #opponent_hands = prior_state.hands[1-active_player]  # Opponent's cards or [] if not revealed
 
-        if self.less_nit_call:
-            if my_delta < 0:
-                self.less_nit_call_losses += 1
-            self.less_nit_call_pm += my_delta
+        if self.reduced_nit_call:
+            if balance_change < 0:
+                self.reduced_nit_losses += 1
+            self.reduced_nit_pnl += balance_change
 
-        if self.less_nit_call_losses >= 3 and self.less_nit_call_pm < -69:
-            self.unnit_not_working = True
-            #print('unnit not working turned on True')
+        if self.reduced_nit_losses >= 3 and self.reduced_nit_pnl < -69:
+            self.nit_unreliable = True
+            #print('Nit strategy unreliable activated')
         else:
-            self.unnit_not_working = False
-            # print('unnit not working turned on False')
+            self.nit_unreliable = False
+            #print('Nit strategy remains reliable')
 
-        self.total_rounds += 1
+        self.round_counter += 1
 
         if game_state.round_num == NUM_ROUNDS:
             print(game_state.game_clock)
-            print(f'num opp bets {self.num_opp_bets}')
-            print(f'num opp 80%: {self.num_opp_potbets}')
-            print(f'bluff pm: {self.bluff_pm}')
-            print(f'normal bluff pm: {self.bluffed_pm}')
-            print(f'normal bluff wins: {self.bluff_numwins}')
-            print(f'normal bluff losses: {self.bluff_numlosses}')
-            print(f'two check bluff pm: {self.twobluff_pm}')
-            print(f'two check wins: {self.twonumwins}')
-            print(f'two check losses: {self.twonumlosses}')
-            print(f'one check bluff pm: {self.onebluff_pm}')
-            print(f'one check wins: {self.onenumwins}')
-            print(f'one check losses: {self.onenumlosses}')
-            print(f'checks {self.check}')
-            print(f'opp check bets {self.opp_check_bluffs}')
-            print(f'opp auction wins {self.opp_auction_wins}')
-            print(f'opp auction flop bets {self.opp_auction_bets}')
-            print(f'draw bluffs {self.draw_bluff_games}')
-            print(f'draw losses {self.draw_bluff_losses}')
-            print(f'draw pm {self.draw_bluff_pm}')
+            print(f'Opponent total bets: {self.opponent_total_bets}')
+            print(f'Opponent pot bets: {self.opponent_pot_bets}')
+            print(f'Bluff PnL: {self.bluff_pnl}')
+            print(f'Current Bluff PnL: {self.bluff_current_pnl}')
+            print(f'Bluff Wins: {self.bluff_wins}')
+            print(f'Bluff Losses: {self.bluff_losses}')
+            print(f'Double Bluff PnL: {self.double_bluff_pnl}')
+            print(f'Double Bluff Wins: {self.double_bluff_wins}')
+            print(f'Double Bluff Losses: {self.double_bluff_losses}')
+            print(f'Single Bluff PnL: {self.single_bluff_pnl}')
+            print(f'Single Bluff Wins: {self.single_bluff_wins}')
+            print(f'Single Bluff Losses: {self.single_bluff_losses}')
+            print(f'Check Count: {self.check_counter}')
+            print(f'Opponent Check Bluffs: {self.opponent_check_bluff_count}')
+            print(f'Draw Bluff Attempts: {self.draw_bluff_attempts}')
+            print(f'Draw Bluff Failures: {self.draw_bluff_failures}')
+            print(f'Draw Bluff PnL: {self.draw_bluff_pnl}')
 
-        if self.draw_bluff_this_round:
-            self.draw_bluff_pm += my_delta
-            self.draw_bluff_games += 1
-            if my_delta < 0:
-                self.draw_bluff_losses += 1
-            
+        if self.has_drawn_bluff:
+            self.draw_bluff_pnl += balance_change
+            self.draw_bluff_attempts += 1
+            if balance_change < 0:
+                self.draw_bluff_failures += 1
 
-        if self.num_opp_bets >= 25 and (self.num_opp_potbets / self.num_opp_bets > .4):
-            self.opp_aggressive = True
-            #print('aggressive')
+        if self.opponent_total_bets >= 25 and (self.opponent_pot_bets / self.opponent_total_bets > 0.4):
+            self.opponent_is_aggressive = True
+            #print('Opponent is aggressive')
         else:
-            self.opp_aggressive = False
+            self.opponent_is_aggressive = False
 
-        if self.opp_won_auction:
-            self.opp_auction_wins += 1
+        if self.opponent_auction_won:
+            self.opponent_auction_wins += 1
 
-        if (self.check >= 8) and (self.opp_check_bluffs / self.check >= .7):
-            self.opp_check_bluffing = True
+        if (self.check_counter >= 8) and (self.opponent_check_bluff_count / self.check_counter >= 0.7):
+            self.opponent_check_is_bluffing = True
         else:
-            self.opp_check_bluffing = False
+            self.opponent_check_is_bluffing = False
 
-        if (self.opp_auction_wins >= 10) and (self.opp_auction_bets / self.opp_auction_wins >= .7):
-            self.opp_auction_bluffing = True
+        if (self.opponent_auction_wins >= 10) and (self.opponent_auction_bets / self.opponent_auction_wins >= 0.7):
+            self.opponent_auction_is_bluffing = True
         else:
-            self.opp_auction_bluffing = False
+            self.opponent_auction_is_bluffing = False
 
-        if self.bluffed_this_round:
-            if abs(my_delta) != 400:
-                self.bluff_pm += my_delta
+        if self.current_round_bluff:
+            if abs(balance_change) != 400:
+                self.bluff_pnl += balance_change
 
-        if self.bluff:
-            self.bluffed_pm += my_delta
-            if my_delta > 0:
-                self.bluff_numwins += 1
+        if self.is_currently_bluffing:
+            self.bluff_current_pnl += balance_change
+            if balance_change > 0:
+                self.bluff_wins += 1
             else:
-                self.bluff_numlosses += 1
-            if ((self.bluff_numwins + self.bluff_numlosses >= 5) and (self.bluff_numlosses / (self.bluff_numwins + self.bluff_numlosses) >= .2) and self.bluffed_pm < 0) or (self.bluffed_pm < -250):
-                #print('bluff not working!!')
-                self.bluff_not_working = 0
-            elif (self.bluff_numwins + self.bluff_numlosses >= 5) and (self.bluff_numlosses / (self.bluff_numwins + self.bluff_numlosses) <= .15) and self.bluffed_pm > 0:
-                #print('bluff is working!!')
-                self.bluff_not_working = 2
+                self.bluff_losses += 1
+            if ((self.bluff_wins + self.bluff_losses >= 5) and (self.bluff_losses / (self.bluff_wins + self.bluff_losses) >= 0.2) and self.bluff_current_pnl < 0) or (self.bluff_current_pnl < -250):
+                #print('Bluff strategy failing')
+                self.bluff_disabled_state = 0
+            elif (self.bluff_wins + self.bluff_losses >= 5) and (self.bluff_losses / (self.bluff_wins + self.bluff_losses) <= 0.15) and self.bluff_current_pnl > 0:
+                #print('Bluff strategy succeeding')
+                self.bluff_disabled_state = 2
             else:
-                self.bluff_not_working = 1
+                self.bluff_disabled_state = 1
 
-        elif self.twocheck:
-            if abs(my_delta) != 400:
-                self.twobluff_pm += my_delta
-                if my_delta > 0:
-                    self.twonumwins += 1
+        elif self.double_check:
+            if abs(balance_change) != 400:
+                self.double_bluff_pnl += balance_change
+                if balance_change > 0:
+                    self.double_bluff_wins += 1
                 else:
-                    self.twonumlosses += 1
-            if (not self.twobluff_not_working and (self.twonumwins + self.twonumlosses >= 8) and (self.twonumlosses / (self.twonumwins + self.twonumlosses) >= .3) and self.twobluff_pm < 0) or self.twobluff_pm < -250:
-                #print('two bluff not working!!')
-                self.twobluff_not_working = True
+                    self.double_bluff_losses += 1
+            if (not self.double_bluff_disabled and (self.double_bluff_wins + self.double_bluff_losses >= 8) and (self.double_bluff_losses / (self.double_bluff_wins + self.double_bluff_losses) >= 0.3) and self.double_bluff_pnl < 0) or self.double_bluff_pnl < -250:
+                #print('Double bluff strategy failing')
+                self.double_bluff_disabled = True
 
-        elif self.onecheck:
-            if abs(my_delta) != 400:
-                self.onebluff_pm += my_delta
-                if my_delta > 0:
-                    self.onenumwins += 1
+        elif self.single_check:
+            if abs(balance_change) != 400:
+                self.single_bluff_pnl += balance_change
+                if balance_change > 0:
+                    self.single_bluff_wins += 1
                 else:
-                    self.onenumlosses += 1
-            if not self.onebluff_not_working and (self.onenumwins + self.onenumlosses >= 8) and (self.onenumlosses / (self.onenumwins + self.onenumlosses) >= .3) and self.onebluff_pm < 0:
-                #print('one bluff not working!!')
-                self.onebluff_not_working = True
+                    self.single_bluff_losses += 1
+            if not self.single_bluff_disabled and (self.single_bluff_wins + self.single_bluff_losses >= 8) and (self.single_bluff_losses / (self.single_bluff_wins + self.single_bluff_losses) >= 0.3) and self.single_bluff_pnl < 0:
+                #print('Single bluff strategy failing')
+                self.single_bluff_disabled = True
 
-            
+    def categorize_hand(self, cards):
+        first_rank = cards[0][0]
+        second_rank = cards[1][0]
+        first_suit = cards[0][1]
+        second_suit = cards[1][1]
+        sorted_hand = ''
+        suit_status = ''
+        rank_priority = {'A': 0, 'K': 1, 'Q': 2, 'J': 3, 'T': 4, '9': 5, '8': 6, '7': 7, '6': 8, '5': 9, '4': 10, '3': 11, '2': 12}
 
-    def categorize_cards(self,cards):
-        rank1 = cards[0][0]
-        rank2 = cards[1][0]
-        suit1 = cards[0][1]
-        suit2 = cards[1][1]
-        hpair = ''
-        onsuit = ''
-        ranking = {'A': 0, 'K': 1, 'Q': 2, 'J': 3, 'T': 4, '9': 5, '8': 6, '7': 7, '6': 8, '5': 9, '4': 10, '3': 11, '2': 12}
-
-        if ranking[rank1]<ranking[rank2]:
-            hpair = rank1+rank2
+        if rank_priority[first_rank] < rank_priority[second_rank]:
+            sorted_hand = first_rank + second_rank
         else:
-            hpair = rank2+rank1
-        
-        if suit1 == suit2:
-            onsuit = 's'
-        else:
-            onsuit = 'o'
-        
-        return (hpair+onsuit)
+            sorted_hand = second_rank + first_rank
 
-    def no_illegal_raises(self,bet,round_state):
-        min_raise, max_raise = round_state.raise_bounds()  # the smallest and largest numbers of chips for a legal bet/raise        
-        if bet >= max_raise:
+        if first_suit == second_suit:
+            suit_status = 's'
+        else:
+            suit_status = 'o'
+
+        return (sorted_hand + suit_status)
+
+    def adjust_raise(self, proposed_bet, round_state):
+        min_raise, max_raise = round_state.raise_bounds()  # Minimum and maximum raise amounts
+        if proposed_bet >= max_raise:
             return max_raise
         else:
-            return bet
+            return proposed_bet
 
-    def get_preflop_action(self,cards,round_state,active):
-        legal_actions = round_state.legal_actions()  # the actions you are allowed to take
-        my_stack = round_state.stacks[active]  # the number of chips you have remaining
-        opp_stack = round_state.stacks[1-active]  # the number of chips your opponent has remaining
-        my_contribution = STARTING_STACK - my_stack  # the number of chips you have contributed to the pot
-        opp_contribution = STARTING_STACK - opp_stack  # the number of chips your opponent has contributed to the pot
-        opp_pip = round_state.pips[1-active]
-        pot = my_contribution+opp_contribution
-        big_blind = bool(active)
-        new_cards = self.categorize_cards(cards)
-        if big_blind == False and self.times_bet_preflop == 0:
-            if self.preflop_dict[new_cards] in range(1,26):
-                self.times_bet_preflop +=1
-                my_bet = 3*pot
-                return RaiseAction(self.no_illegal_raises(my_bet,round_state))
-            elif self.preflop_dict[new_cards] in range(20,self.small_blind_raise):
-                self.times_bet_preflop +=1
-                my_bet = 2*pot
-                return RaiseAction(self.no_illegal_raises(my_bet,round_state))
+    def preflop_strategy(self, cards, round_state, active_player):
+        allowed_moves = round_state.legal_actions()  # Allowed actions
+        my_stack = round_state.stacks[active_player]  # Your remaining chips
+        opponent_stack = round_state.stacks[1-active_player]  # Opponent's remaining chips
+        my_pot_contrib = STARTING_STACK - my_stack  # Your contribution to the pot
+        opponent_pot_contrib = STARTING_STACK - opponent_stack  # Opponent's contribution to the pot
+        opponent_current_pip = round_state.pips[1-active_player]
+        total_pot = my_pot_contrib + opponent_pot_contrib
+        is_big_blind = bool(active_player)
+        categorized = self.categorize_hand(cards)
+
+        if not is_big_blind and self.times_preflop_bet == 0:
+            if self.hand_rankings[categorized] in range(1,26):
+                print(self.player_bounty)
+                self.times_preflop_bet +=1
+                bet_amount = 3 * total_pot
+                return RaiseAction(self.adjust_raise(bet_amount, round_state))
+            elif self.hand_rankings[categorized] in range(20, self.min_raise_limit) or (self.player_bounty in cards and self.hand_rankings[categorized] in range(5,60)):
+                self.times_preflop_bet +=1
+                bet_amount = 2 * total_pot
+                return RaiseAction(self.adjust_raise(bet_amount, round_state))
             else:
                 return FoldAction()
-        elif big_blind == True and self.times_bet_preflop ==0:
-            if self.preflop_dict[new_cards] in range(1,5) or (self.preflop_dict[new_cards] in range(5,self.big_blind_raise) and pot <= 20):
-                self.times_bet_preflop +=1
-                my_bet = 2*pot
-                if RaiseAction in legal_actions:
-                    return RaiseAction(self.no_illegal_raises(my_bet,round_state))
-                elif CallAction in legal_actions:
+        elif is_big_blind and self.times_preflop_bet == 0:
+            if self.hand_rankings[categorized] in range(1,5) or (self.hand_rankings[categorized] in range(5, self.max_raise_limit) and total_pot <= 20) or (self.player_bounty in cards and self.hand_rankings[categorized] in range(5,60)):
+                self.times_preflop_bet +=1
+                bet_amount = 2 * total_pot
+                if RaiseAction in allowed_moves:
+                    return RaiseAction(self.adjust_raise(bet_amount, round_state))
+                elif CallAction in allowed_moves:
                     return CallAction()
                 else:
-                    print("this shouldn't ever happen")
-            elif opp_pip == 2 and self.preflop_dict[new_cards] in range(1,60) and random.random() < .69:
-                self.times_bet_preflop +=1
-                my_bet = 2*pot
-                if RaiseAction in legal_actions:
-                    return RaiseAction(self.no_illegal_raises(my_bet,round_state))
+                    print("Unexpected action scenario")
+            elif opponent_current_pip == 2 and self.hand_rankings[categorized] in range(1,60) and random.random() < 0.69:
+                self.times_preflop_bet +=1
+                bet_amount = 2 * total_pot
+                if RaiseAction in allowed_moves:
+                    return RaiseAction(self.adjust_raise(bet_amount, round_state))
                 return CheckAction()
-            elif self.preflop_dict[new_cards] in range(5,int(self.big_blind_call+1-((opp_pip-2)/198)**(1/3)*(self.big_blind_call+1-5))) and opp_pip <= 200:
-                if CallAction in legal_actions:
+            elif self.hand_rankings[categorized] in range(5, int(self.call_limit +1 - ((opponent_current_pip-2)/198)**(1/3)*(self.call_limit +1 - 5))) and opponent_current_pip <= 200:
+                if CallAction in allowed_moves:
                     return CallAction()
                 else:
                     return CheckAction()
             else:
-                if CheckAction in legal_actions:
+                if CheckAction in allowed_moves:
                     return CheckAction()
                 return FoldAction()
         else:
-            if self.preflop_dict[new_cards] in range(1,5):
-                self.times_bet_preflop +=1
-                my_bet = 2*pot
-                if RaiseAction in legal_actions:
-                    return RaiseAction(self.no_illegal_raises(my_bet,round_state))
-                elif CallAction in legal_actions:
+            if self.hand_rankings[categorized] in range(1,5) or (self.hand_rankings[categorized] in range(5, 13) and total_pot < STARTING_STACK // 2):
+                self.times_preflop_bet +=1
+                bet_amount = 2 * total_pot
+                print("RERAISE INITIATED", cards, bet_amount)
+                if RaiseAction in allowed_moves:
+                    return RaiseAction(self.adjust_raise(bet_amount, round_state))
+                elif CallAction in allowed_moves:
                     return CallAction()
                 else:
-                    print("this shouldn't ever happen")
-            elif self.preflop_dict[new_cards] in range(5, int(67-((opp_pip-2)/398)**(1/3)*61)):
-                if CallAction in legal_actions:
+                    print("Unexpected action scenario")
+            elif self.hand_rankings[categorized] in range(5, int(67 - ((opponent_current_pip-2)/398)**(1/3)*61)):
+                if CallAction in allowed_moves:
                     return CallAction()
                 else:
                     return CheckAction()
             else:
-                if CheckAction in legal_actions:
+                if CheckAction in allowed_moves:
                     return CheckAction()
                 return FoldAction()
 
+    def postflop_decision(self, round_state, hand_strength_score, active_player):
+        allowed_moves = round_state.legal_actions()
+        current_phase = round_state.street
+        my_current_pip = round_state.pips[active_player]
+        opponent_current_pip = round_state.pips[1-active_player]
+        my_remaining_stack = round_state.stacks[active_player]
+        opponent_remaining_stack = round_state.stacks[1-active_player]
+        my_pot_contrib = STARTING_STACK - my_remaining_stack
+        opponent_pot_contrib = STARTING_STACK - opponent_remaining_stack
+        total_pot = my_pot_contrib + opponent_pot_contrib
+        is_big_blind = bool(active_player)
+        card_count = len(round_state.hands[active_player])
+        bluff_adjustment = 0
 
-    def decide_action_postflop(self, round_state, hand_strength, active):
-        legal_actions = round_state.legal_actions()
-        street = round_state.street
-        my_pip = round_state.pips[active]  
-        opp_pip = round_state.pips[1-active]  
-        my_stack = round_state.stacks[active] 
-        opp_stack = round_state.stacks[1-active]  
-        my_contribution = STARTING_STACK - my_stack
-        opp_contribution = STARTING_STACK - opp_stack
-        pot = my_contribution + opp_contribution
-        big_blind = bool(active)
-        num_cards = len(round_state.hands[active])
-        unnit = 0
+        if current_phase == 3:
+            self.opponent_auction_won = True
 
-        if street == 3:
-            self.opp_won_auction = True
+        if opponent_current_pip > 0:
+            if self.my_total_checks > 0:
+                self.opponent_check_bluff_count += 1
+                self.opponent_bluffed_this_round = True
+            if current_phase == 3 and self.opponent_auction_won:
+                self.opponent_auction_bets += 1
+                self.opponent_auction_bet_current = True
+            if my_current_pip > 0:
+                self.current_round_bluff = True
+            self.opponent_total_bets += 1
+            self.opponent_total_checks = 0
+            self.last_contribution_amount = opponent_pot_contrib
+        elif is_big_blind and current_phase > 3:
+            if opponent_pot_contrib == self.last_contribution_amount:
+                self.opponent_total_checks += 1
+        elif not is_big_blind and opponent_current_pip == 0:
+            self.opponent_total_checks += 1
 
-        if opp_pip > 0:
-            if self.my_checks > 0:
-                self.opp_check_bluffs += 1
-                self.opp_check_bluff_this_round = True
-            if street == 3 and self.opp_won_auction:
-                self.opp_auction_bets += 1
-                self.opp_auction_bet_this_round = True
-            if my_pip > 0:
-                self.bluffed_this_round = True
-            self.num_opp_bets += 1
-            self.opp_checks = 0
-            self.last_cont = opp_contribution
-        elif big_blind and street > 3:
-            if opp_contribution == self.last_cont:
-                self.opp_checks += 1
-        elif not big_blind and opp_pip == 0:
-            self.opp_checks += 1
+        if opponent_current_pip > 0.8 * (total_pot - opponent_current_pip + my_current_pip):
+            self.opponent_pot_bets += 1
 
-        if opp_pip > .8*(pot - opp_pip + my_pip):
-            self.num_opp_potbets += 1
-
-        rand = random.random()
-        if CheckAction in legal_actions: #Check, raise
-            if self.opp_check_bluffing and hand_strength > .75 and street != 5: #let them bet into us, free dough
-                self.check += 1
-                self.my_checks += 1
+        rand_val = random.random()
+        if CheckAction in allowed_moves:  # Can check or raise
+            if self.opponent_check_is_bluffing and hand_strength_score > 0.75 and current_phase != 5:
+                self.check_counter += 1
+                self.my_total_checks += 1
                 return CheckAction, None
-            if rand < hand_strength + 0.15 and hand_strength >= (.5 + ((street % 3) * self.raise_fact)): # value raises, need stronger hands as street increases
-                self.my_checks = 0
-                self.opp_checks = 0
-                return RaiseAction, 1 #value bet
-            elif street == 5 and hand_strength > .9:
-                self.my_checks = 0
-                self.opp_checks = 0
-                return RaiseAction, 1  #no checks on river with super strong hands
-            elif self.draw_hit_pct > .25 and hand_strength >= .4 and street != 5 and not self.bluffed_this_round and rand <= self.draw_bluff_fact:
-                self.my_checks = 0
-                self.opp_checks = 0
-                self.bluffed_this_round = True
-                self.draw_bluff_this_round = True
-                #print('semi bluff')
+            if rand_val < hand_strength_score + 0.15 and hand_strength_score >= (0.5 + ((current_phase % 3) * self.raise_chance)):
+                self.my_total_checks = 0
+                self.opponent_total_checks = 0
+                return RaiseAction, 1  # Value bet
+            elif current_phase == 5 and hand_strength_score > 0.9:
+                self.my_total_checks = 0
+                self.opponent_total_checks = 0
+                return RaiseAction, 1  # Strong hand on river
+            elif self.draw_completion_percentage > 0.25 and hand_strength_score >= 0.4 and current_phase != 5 and not self.current_round_bluff and rand_val <= self.draw_bluff_multiplier:
+                self.my_total_checks = 0
+                self.opponent_total_checks = 0
+                self.current_round_bluff = True
+                self.has_drawn_bluff = True
+                #print('Initiated semi-bluff')
                 return RaiseAction, 0
-            elif self.opp_checks == 3 and rand < .8:
-                #print('3 check bluff')
+            elif self.opponent_total_checks == 3 and rand_val < 0.8:
+                #print('3-check bluff initiated')
                 return RaiseAction, 0
-            elif not self.bluffed_this_round and not big_blind and (self.opp_checks == 2) and (rand < .869*self.try_bluff*self.twobluff_fact): #2 check bluff as dealer
-                self.opp_checks = 0
-                self.bluffed_this_round = True
-                self.twocheck = True
-                self.my_checks = 0
-                #print('2 check bluff')
+            elif not self.current_round_bluff and not is_big_blind and (self.opponent_total_checks == 2) and (rand_val < 0.869 * self.bluff_attempt * self.double_bluff_multiplier):
+                self.opponent_total_checks = 0
+                self.current_round_bluff = True
+                self.double_check = True
+                self.my_total_checks = 0
+                #print('2-check bluff as dealer')
                 return RaiseAction, 0
-            elif not self.bluffed_this_round and big_blind and (self.opp_checks == 2) and (rand < self.try_bluff*.69*self.twobluff_fact): #2 check bluff as big blind
-                self.opp_checks = 0
-                self.bluffed_this_round = True
-                self.twocheck = True
-                self.my_checks = 0
-                #print('2 check bluff')
+            elif not self.current_round_bluff and is_big_blind and (self.opponent_total_checks == 2) and (rand_val < self.bluff_attempt * 0.69 * self.double_bluff_multiplier):
+                self.opponent_total_checks = 0
+                self.current_round_bluff = True
+                self.double_check = True
+                self.my_total_checks = 0
+                #print('2-check bluff as big blind')
                 return RaiseAction, 0
-            elif not self.bluffed_this_round and not big_blind and (self.opp_checks == 1) and (rand < self.try_bluff*.25*self.onebluff_fact): #1 check bluff as dealer
-                self.opp_checks = 0
-                self.bluffed_this_round = True
-                self.onecheck = True
-                self.my_checks = 0
-                #print('1 check bluff')
+            elif not self.current_round_bluff and not is_big_blind and (self.opponent_total_checks == 1) and (rand_val < self.bluff_attempt * 0.25 * self.single_bluff_multiplier):
+                self.opponent_total_checks = 0
+                self.current_round_bluff = True
+                self.single_check = True
+                self.my_total_checks = 0
+                #print('1-check bluff as dealer')
                 return RaiseAction, 0
-            elif not self.less_nit_call and not self.bluffed_this_round and (rand < (self.try_bluff*self.bluff_fact*(1-hand_strength)/(1+(street%3)))) and (hand_strength < 0.65):
-                self.opp_checks = 0  #3 card bluff after winning auction
-                self.bluffed_this_round = True
-                self.bluff = True
-                self.my_checks = 0
-                #print('bluffed')
-                return RaiseAction, 0 #bluff
-            self.check += 1
-            self.my_checks += 1
+            elif not self.reduced_nit_call and not self.current_round_bluff and (rand_val < (self.bluff_attempt * self.bluff_multiplier * (1 - hand_strength_score) / (1 + (current_phase % 3)))) and (hand_strength_score < 0.65):
+                self.opponent_total_checks = 0  # Bluff after winning auction
+                self.current_round_bluff = True
+                self.is_currently_bluffing = True
+                self.my_total_checks = 0
+                #print('Bluff initiated')
+                return RaiseAction, 0  # Bluff
+            self.check_counter += 1
+            self.my_total_checks += 1
             return CheckAction, None
-        else: #Fold, Call, Raise
-            pot_equity = (opp_pip-my_pip) / (pot - (opp_pip - my_pip))
-            if pot_equity > .7 and pot_equity < .8:
-                pot_equity = .7
-            elif pot_equity >= .8 and pot_equity < 1.1:
-                pot_equity = .8
+        else:  # Can fold, call, or raise
+            pot_equity = (opponent_current_pip - my_current_pip) / (total_pot - (opponent_current_pip - my_current_pip))
+            if 0.7 < pot_equity < 0.8:
+                pot_equity = 0.7
+            elif 0.8 <= pot_equity < 1.1:
+                pot_equity = 0.8
             elif pot_equity >= 1.1:
-                pot_equity = .85
-            elif pot_equity <= .75:
-                pot_equity = min(pot_equity + 0.0725,0.725)
-            if pot_equity <= .5:
-                pot_equity = min(pot_equity + 0.0725, .5)
-            if self.opp_aggressive and pot_equity >= .8 and my_pip == 0:
-                if num_cards == 2:
-                    unnit += .1
+                pot_equity = 0.85
+            elif pot_equity <= 0.75:
+                pot_equity = min(pot_equity + 0.0725, 0.725)
+            if pot_equity <= 0.5:
+                pot_equity = min(pot_equity + 0.0725, 0.5)
+            if self.opponent_is_aggressive and pot_equity >= 0.8 and my_current_pip == 0:
+                if card_count == 2:
+                    bluff_adjustment += 0.1
                 else:
-                    unnit += .05
-                #print('added less nit, bc aggressive')
-            if self.opp_auction_bluffing and self.opp_auction_bet_this_round:
-                if self.opp_aggressive and ((opp_pip-my_pip) / (pot - (opp_pip - my_pip)) > .8):
-                    unnit += .15
-                    #print('auction less nit')
-                elif not self.opp_aggressive:
-                    unnit += .1
-                    #print('auction less nit')
-            elif self.opp_check_bluffing and self.opp_check_bluff_this_round:
-                if self.opp_aggressive and ((opp_pip-my_pip) / (pot - (opp_pip - my_pip)) > .8):
-                    if num_cards == 2:
-                        unnit += .1
+                    bluff_adjustment += 0.05
+                #print('Adjusted bluff due to aggressive opponent')
+            if self.opponent_auction_is_bluffing and self.opponent_auction_bet_current:
+                if self.opponent_is_aggressive and ((opponent_current_pip - my_current_pip) / (total_pot - (opponent_current_pip - my_current_pip)) > 0.8):
+                    bluff_adjustment += 0.15
+                    #print('Auction bluff adjustment')
+                elif not self.opponent_is_aggressive:
+                    bluff_adjustment += 0.1
+                    #print('Auction bluff without aggression adjustment')
+            elif self.opponent_check_is_bluffing and self.opponent_bluffed_this_round:
+                if self.opponent_is_aggressive and ((opponent_current_pip - my_current_pip) / (total_pot - (opponent_current_pip - my_current_pip)) > 0.8):
+                    if card_count == 2:
+                        bluff_adjustment += 0.1
                     else:
-                        unnit += .05
-                    #print('check less nit')
-                elif not self.opp_aggressive and num_cards == 2:
-                    unnit += .075
-                    #print('check less nit')
-            #print(f'unnit {unnit}')
+                        bluff_adjustment += 0.05
+                    #print('Check bluff adjustment for aggressive opponent')
+                elif not self.opponent_is_aggressive and card_count == 2:
+                    bluff_adjustment += 0.075
+                    #print('Check bluff adjustment for non-aggressive opponent with 2 cards')
+            #print(f'Bluff Adjustment: {bluff_adjustment}')
 
-            # if unnit not working, divide by two
-            if self.unnit_not_working:
-                unnit = unnit / 2
-                #print('unnit not working, divided by two', f'unnit after divide {unnit}')
+            # If Nit strategy is unreliable, halve the bluff adjustment
+            if self.nit_unreliable:
+                bluff_adjustment /= 2
+                #print('Nit strategy unreliable, halved bluff adjustment')
 
-            pot_equity -= unnit
-            if hand_strength > pot_equity and hand_strength < pot_equity + unnit and hand_strength > .35:
-                #print('less nit call')
-                self.less_nit_call = True
-            self.my_checks = 0
-            self.opp_check_bluff_this_round = False
-            self.opp_auction_bet_this_round = False
-            if hand_strength < pot_equity: #bad pot equity
+            pot_equity -= bluff_adjustment
+            if hand_strength_score > pot_equity and hand_strength_score < pot_equity + bluff_adjustment and hand_strength_score > 0.35:
+                #print('Initiating reduced nit call')
+                self.reduced_nit_call = True
+            self.my_total_checks = 0
+            self.opponent_bluffed_this_round = False
+            self.opponent_auction_bet_current = False
+            if hand_strength_score < pot_equity:  # Poor pot equity
                 return FoldAction, None
-            elif hand_strength < .35:
+            elif hand_strength_score < 0.35:
                 return FoldAction, None
-            else: #good pot equity
-                reraise_strength = (.9 + ((street % 3) * self.reraise_fact)) 
-                if not self.opp_check_bluff_this_round and (hand_strength > reraise_strength) or (hand_strength - pot_equity > .3 and hand_strength > (reraise_strength - .05)):
-                    return RaiseAction, 1 #value raise
+            else:  # Favorable pot equity
+                raise_threshold = (0.9 + ((current_phase % 3) * self.double_raise_chance))
+                if not self.opponent_bluffed_this_round and (hand_strength_score > raise_threshold) or (hand_strength_score - pot_equity > 0.3 and hand_strength_score > (raise_threshold - 0.05)):
+                    return RaiseAction, 1  # Value raise
                 return CallAction, None
 
-    def hand_strength(self, round_state, street, active):
-        board = [eval7.Card(x) for x in round_state.deck[:street]]
-        my_hole = [eval7.Card(a) for a in round_state.hands[active]]
-        comb = board + my_hole
-        num_more_board = 5 - len(board)
+    def evaluate_hand_strength(self, round_state, phase, active_player):
+        board = [eval7.Card(x) for x in round_state.deck[:phase]]
+        my_hole = [eval7.Card(a) for a in round_state.hands[active_player]]
+        combined = board + my_hole
+        remaining_board = 5 - len(board)
 
-        if len(my_hole) == 2 and street > 0:
-            opp_num = 3
-        elif len(my_hole) == 3 and street > 0:
-            opp_num = 3
+        if len(my_hole) == 2 and phase > 0:
+            opponent_cards = 3
+        elif len(my_hole) == 3 and phase > 0:
+            opponent_cards = 3
         else:
-            opp_num = 2
+            opponent_cards = 2
 
         deck = eval7.Deck()
-        for card in comb:
+        for card in combined:
             deck.cards.remove(card)
 
-        num_better = 0
-        trials = 0
-        self.draw_hit = 0
+        superior_hands = 0
+        trial_count = 0
+        self.draw_completion = 0
 
-        while trials < self.trials:
+        while trial_count < self.simulation_trials:
             deck.shuffle()
-            cards = deck.peek(opp_num + num_more_board)
-            opp_hole = cards[:opp_num]
-            board_rest = cards[opp_num:]
-            my_val = eval7.evaluate(my_hole+board+board_rest)
-            opp_value = eval7.evaluate(opp_hole+board+board_rest)
-            if my_val > opp_value:
-                num_better += 2
-            if my_val == opp_value:
-                num_better += 1
-            trials += 1
-            if my_val >= 67305472 and my_val <= 84715911:
-                self.draw_hit += 1
+            sampled = deck.peek(opponent_cards + remaining_board)
+            opponent_hole = sampled[:opponent_cards]
+            board_extension = sampled[opponent_cards:]
+            my_hand_value = eval7.evaluate(my_hole + board + board_extension)
+            opponent_hand_value = eval7.evaluate(opponent_hole + board + board_extension)
+            if my_hand_value > opponent_hand_value:
+                superior_hands += 2
+            if my_hand_value == opponent_hand_value:
+                superior_hands += 1
+            trial_count += 1
+            if 67305472 <= my_hand_value <= 84715911:
+                self.draw_completion += 1
 
-        percent_better_than = num_better/(2*trials)
-        self.draw_hit_pct = self.draw_hit/trials
-        return percent_better_than
+        percentage_better = superior_hands / (2 * trial_count)
+        self.draw_completion_percentage = self.draw_completion / trial_count
+        return percentage_better
 
-    def get_action(self, game_state, round_state, active):
+    def get_action(self, game_state, round_state, active_player):
         '''
-        Where the magic happens - your code should implement this function.
-        Called any time the engine needs an action from your bot.
+        Determines the bot's action during the game.
+        Invoked whenever an action is required.
 
         Arguments:
         game_state: the GameState object.
         round_state: the RoundState object.
-        active: your player's index.
+        active_player: your player's index.
 
         Returns:
-        Your action.
+        The chosen action.
         '''
-        # May be useful, but you may choose to not use.
-        legal_actions = round_state.legal_actions() # the actions you are allowed to take
-        street = round_state.street  # 0, 3, 4, or 5 representing pre-flop, flop, turn, or river respectively
-        my_cards = round_state.hands[active]  # your cards
-        #board_cards = round_state.deck[:street]  # the board cards
-        my_pip = round_state.pips[active]  # the number of chips you have contributed to the pot this round of betting
-        opp_pip = round_state.pips[1-active]  # the number of chips your opponent has contributed to the pot this round of betting
-        my_stack = round_state.stacks[active]  # the number of chips you have remaining
-        opp_stack = round_state.stacks[1-active]  # the number of chips your opponent has remaining
-        #continue_cost = opp_pip - my_pip  # the number of chips needed to stay in the pot
-        my_contribution = STARTING_STACK - my_stack  # the number of chips you have contributed to the pot
-        opp_contribution = STARTING_STACK - opp_stack  # the number of chips your opponent has contributed to the pot
-        self.draw_hit = 0
-        self.draw_hit_pct = 0
+        allowed_moves = round_state.legal_actions()  # Allowed actions
+        current_phase = round_state.street  # Current phase: 0, 3, 4, or 5
+        player_hand = round_state.hands[active_player]  # Your current hand
+        #board_cards = round_state.deck[:current_phase]  # Current board
+        my_current_pip = round_state.pips[active_player]  # Your current pip
+        opponent_current_pip = round_state.pips[1-active_player]  # Opponent's current pip
+        my_remaining_stack = round_state.stacks[active_player]  # Your remaining chips
+        opponent_remaining_stack = round_state.stacks[1-active_player]  # Opponent's remaining chips
+        #continue_cost = opponent_current_pip - my_current_pip  # Chips needed to stay in pot
+        my_pot_contrib = STARTING_STACK - my_remaining_stack  # Your contribution to pot
+        opponent_pot_contrib = STARTING_STACK - opponent_remaining_stack  # Opponent's contribution to pot
+        self.draw_completion = 0
+        self.draw_completion_percentage = 0
 
-        if self.already_won:
-            if FoldAction in legal_actions:
+        self.player_bounty = round_state.bounties[active_player]
+
+        if self.game_victory:
+            if FoldAction in allowed_moves:
                 return FoldAction()
             else:
                 return CheckAction()
 
-        pot = my_contribution + opp_contribution
+        total_pot = my_pot_contrib + opponent_pot_contrib
         min_raise, max_raise = round_state.raise_bounds()
-        hand_strength = self.hand_strength(round_state, street, active) - self.nit
-        # print(self.draw_hit_pct)
+        strength = self.evaluate_hand_strength(round_state, current_phase, active_player) - self.caution_level
+        # print(self.draw_completion_percentage)
         #if self.draw_hit_pct > .25 and self.draw_hit_pct < 1:
             #print('DRAWWWWWWWWWW')
 
-        if my_contribution > 100:
-            hand_strength -= 0.03
+        if my_pot_contrib > 100:
+            strength -= 0.03
 
-        if street == 0:       
-            return self.get_preflop_action(my_cards,round_state,active)
+        if current_phase == 0:
+            return self.preflop_strategy(player_hand, round_state, active_player)
         else:
-            if street == 3:
-                self.last_cont = opp_contribution
-            decision, conf = self.decide_action_postflop(round_state, hand_strength, active)
+            if current_phase == 3:
+                self.last_contribution_amount = opponent_pot_contrib
+            decision, confidence = self.postflop_decision(round_state, strength, active_player)
 
-        rand = random.random()
-        if decision == RaiseAction and RaiseAction in legal_actions:
-            hand_strength_threshold = 0.8+0.05*(street % 3)
-            if conf != 0 and hand_strength < hand_strength_threshold:
-                bet_max = int((1+(2*(hand_strength**2)*rand)) * 3 * pot / 8)
-                maximum = min(max_raise, bet_max)
-                minimum = max(min_raise, pot / 4)
+        rand_val = random.random()
+        if decision == RaiseAction and RaiseAction in allowed_moves:
+            strength_limit = 0.8 + 0.05 * (current_phase % 3)
+            if confidence != 0 and strength < strength_limit:
+                max_bet = int((1 + (2 * (strength ** 2) * rand_val)) * 3 * total_pot / 8)
+                final_max = min(max_raise, max_bet)
+                final_min = max(min_raise, total_pot / 4)
             else:
-                maximum = min(max_raise, 7*pot/4)
-                minimum = max(min_raise, 1.10*pot)
-            if maximum <= minimum:
-                amount = int(min_raise)
+                final_max = min(max_raise, 7 * total_pot / 4)
+                final_min = max(min_raise, 1.10 * total_pot)
+            if final_max <= final_min:
+                bet_amount = int(min_raise)
             else:
-                amount = int(rand * (maximum - minimum) + minimum)
-            return RaiseAction(amount)
-        if decision == RaiseAction and RaiseAction not in legal_actions:
-            if CallAction in legal_actions:
+                bet_amount = int(rand_val * (final_max - final_min) + final_min)
+            return RaiseAction(bet_amount)
+        if decision == RaiseAction and RaiseAction not in allowed_moves:
+            if CallAction in allowed_moves:
                 return CallAction()
-            self.check += 1
-            self.my_checks += 1
+            self.check_counter += 1
+            self.my_total_checks += 1
             return CheckAction()
         return decision()
 

@@ -1,0 +1,76 @@
+7
+RERAISE INITIATED ['Ad', 'Ks'] 52
+7
+RERAISE INITIATED ['9h', '9d'] 52
+RERAISE INITIATED ['9h', '9d'] 312
+7
+7
+2
+2
+A
+A
+A
+A
+K
+K
+K
+J
+J
+RERAISE INITIATED ['Ad', 'Jd'] 86
+Q
+RERAISE INITIATED ['9h', '9d'] 52
+RERAISE INITIATED ['9h', '9d'] 312
+Q
+Q
+Q
+T
+4
+4
+3
+RERAISE INITIATED ['Kh', 'Kd'] 52
+RERAISE INITIATED ['Kc', 'Kh'] 46
+RERAISE INITIATED ['Qs', 'As'] 46
+RERAISE INITIATED ['Qs', 'As'] 276
+6
+6
+8
+K
+K
+T
+T
+T
+RERAISE INITIATED ['Ah', 'Jh'] 52
+7
+7
+7
+K
+A
+A
+RERAISE INITIATED ['Ac', 'Kc'] 52
+RERAISE INITIATED ['Qd', 'Qc'] 86
+RERAISE INITIATED ['Qd', 'Qc'] 518
+6
+6
+RERAISE INITIATED ['Ts', 'Th'] 52
+RERAISE INITIATED ['Ts', 'Th'] 312
+K
+RERAISE INITIATED ['Ah', 'Qh'] 52
+K
+58.403
+Opponent total bets: 189
+Opponent pot bets: 127
+Bluff PnL: 2320
+Current Bluff PnL: -79
+Bluff Wins: 7
+Bluff Losses: 13
+Double Bluff PnL: 623
+Double Bluff Wins: 15
+Double Bluff Losses: 30
+Single Bluff PnL: -353
+Single Bluff Wins: 2
+Single Bluff Losses: 8
+Check Count: 241
+Opponent Check Bluffs: 93
+Draw Bluff Attempts: 6
+Draw Bluff Failures: 3
+Draw Bluff PnL: 26

@@ -60,9 +60,9 @@ class CFR:
         self.reservoir_size = reservoir_size
         
         # CHANGED: Lower learning rate, moderate batch size, added weight decay in training
-        self.num_epochs = 25                 
-        self.batch_size = 512                
-        self.learning_rate = 1e-3            # was 0.1 previously; now 1e-3 for stability
+        self.num_epochs = 100                 
+        self.batch_size = 64                
+        self.learning_rate = 0.001           # was 0.1 previously; now 1e-3 for stability
 
         self.game_engine = LocalGame()
 

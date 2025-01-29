@@ -39,7 +39,7 @@ class Player(Bot):
 
         # Load your trained DeepCFR model
         self.model = DeepCFRModel(4, self.nbets, self.nactions, t.device("cpu"))
-        self.model.load_state_dict(t.load("models/player_1_model2.pth"))
+        self.model.load_state_dict(t.load("models/player_1_model3.pth"))
         self.model.eval()  # evaluation mode
         self.bets = []
 
